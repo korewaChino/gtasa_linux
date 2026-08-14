@@ -466,18 +466,13 @@ int main(void) {
   // full clock for boot; dropped once the menu has rendered
   cpu_boost(1);
 
-  // keep all GL on the render thread: a mesa worker thread issuing GL races
-  // nouveau's small-buffer allocator and corrupts its pool
-  setenv("MESA_GLTHREAD", "false", 1);
+  setenv("MESA_GLTHREAD", "true", 1);
   setenv("GALLIUM_THREAD", "0", 1);
+  setenv("NOUVEAU_SWITCH_MAPPED_COMPLETION", "1", 1);
 
-  // Persist Mesa's compiled-shader disk cache across launches (avoids recompiling
-  // every boot). Must be set before the game creates its GL context. Mesa 20.1
-  // uses the MESA_GLSL_CACHE_* names; needs -Wl,--build-id in LDFLAGS or Mesa
-  // can't key the cache and silently disables it.
   mkdir("/switch/gtasa/shadercache", 0777);
-  setenv("MESA_GLSL_CACHE_DIR", "/switch/gtasa/shadercache", 1);
-  setenv("MESA_GLSL_CACHE_DISABLE", "false", 1);
+  setenv("MESA_SHADER_CACHE_DIR", "/switch/gtasa/shadercache", 1);
+  setenv("MESA_SHADER_CACHE_DISABLE", "false", 1);
 
   if (read_config(CONFIG_NAME) < 0)
     write_config(CONFIG_NAME);
