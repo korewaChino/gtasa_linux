@@ -36,9 +36,6 @@ game data folders (`data/`, `models/`, `texdb/`, `audio/`, …) all inside
 
 ### Notes
 
-Low Performance : CPU-bound on draw calls, the game issues a lot of GL calls per frame and Switch mesa driver is slow per-call and the GPU sits idle most of the time 
-Best lever today is CPU overclock a real fix would need a thinner/threaded GL driver
-
 This will not work in applet/album mode (it needs the full memory + syscall set).
 Launch it through a **game override** (hold R on an installed title) or a
 forwarder.
