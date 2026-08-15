@@ -163,6 +163,11 @@ static int  (*CGameLogic__IsCoopGameGoingOn)(void);
 static int  (*CHID__GetInputType)(void);
 static void *MobileSettings_settings;
 
+void keep_game_frame_limiter_off(void) {
+  if (MobileSettings_settings)
+    *(int *)((uint8_t *)MobileSettings_settings + 1216) = 0;
+}
+
 // Called from free_aim_stub.s when a lock-on target exists but isn't being cycled.
 __attribute__((visibility("hidden"))) void free_aim_maybe(void *playerPed) {
   static int prev = 0;
@@ -815,6 +820,12 @@ void patch_game(void) {
 
   if (!game_tls_install())
     debugPrintf("TLS: failed to install main-thread game TLS\n");
+
+  // Keep the frame limiter under user control.
+  if (so_try_find_addr_rx(&game_mod, "_Z11DoGameStatef")) {
+    uint32_t *fn = (uint32_t *)so_find_addr(&game_mod, "_Z11DoGameStatef");
+    fn[0x734 / 4] = 0xD503201F;
+  }
 
   // Ignore app rating popup.
   if (so_try_find_addr_rx(&game_mod, "_Z12Menu_ShowNagv"))

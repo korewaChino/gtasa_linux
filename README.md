@@ -42,11 +42,13 @@ forwarder.
 
 Save games and settings are stored in `/switch/gtasa/`.
 
-The port has a config file at `/switch/gtasa/config.txt`, created on first run:
+The port has a config file at `/switch/gtasa/gtasa_nx.cfg`, created on first run:
 * `screen_width` / `screen_height` — render resolution; `-1` picks 1280x720 in
   handheld and 1920x1080 docked
 * `trilinear_filter` — `1` forces trilinear texture filtering
 * `show_fps` — `1` draws a small FPS counter in the top-left corner
+* `fps_cap_30` — `1` enables the wrapper's 30 FPS cap
+* `auto_boot_delay` — launcher countdown in seconds (`1`, `3`, `5`, or `10`)
 * `ps2_corona_rotation` — `1` PS2 Corona Sun
 * `ps2_color_filter` — `1` PS2 Color filter
 * `sprint_any_surface` — `0` Sprinting on any surface is allowed
@@ -66,21 +68,19 @@ The port has a config file at `/switch/gtasa/config.txt`, created on first run:
 
 ### Mod Settings Menu
 
-The port includes a built-in configurator for toggling the mod's fixes and features.
-
-**To open it:** at launch, a splash screen appears for ~3 seconds
-("Hold ZR for Mod Settings"). **Hold ZR** during this window to enter the menu.
-If you don't hold ZR, the game boots normally.
+The SDL launcher opens on every boot with the game cover centered. Select the
+cover to launch, or open **Options** to change the port's fixes and features.
+Changes are saved immediately to `gtasa_nx.cfg`.
 
 ### How to build
 
 **1. Install the Switch portlibs:**
 
 ```sh
-dkp-pacman -S switch-sdl2 switch-mpg123 switch-ffmpeg switch-openal-soft switch-libexpat switch-libzstd switch-zlib
+dkp-pacman -S switch-sdl2 switch-sdl2_image switch-mpg123 switch-ffmpeg switch-openal-soft switch-libexpat switch-libzstd switch-zlib
 ```
 
-**3. Build the `.nro`:**
+**2. Build the `.nro`:**
 
 ```sh
 make
