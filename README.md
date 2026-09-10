@@ -3,14 +3,120 @@
 <img src="extras/banner.png" alt="Banner" width="35%">
 
 </div>
-<h1 align=center>GTA: San Andreas - Nintendo Switch port</h1>
+<h1 align=center>GTA: San Andreas - generic Linux port</h1>
 
-This is a wrapper/port of the Android version of Grand Theft Auto: San Andreas
-(**v2.11.311**, arm64-v8a). It loads the original game binary, patches it and
-runs it. It's basically a minimalist Android environment in which we natively
-run the original 64-bit Android binary as-is.
+This Linux/SDL3 port is based on the MIT-licensed
+[gtasa_nx](https://github.com/NaGaa95/gtasa_nx) Android ARM64 loader and shims.
+The Linux target is currently tested with **v2.11.264** `libGame.so`; upstream
+targets **v2.11.311**. It runs the user's Android library natively in a minimal
+compatibility environment. Version-specific Switch gameplay patches are not
+applied by the Linux target.
 
-### How to install
+i made this because there's weird shady "PortMaster" archives going around [from the R36S wiki](https://r36swiki.com/wiki-gtasa.html),
+which seemed to have zero build provenance and i have zero clue how it's built, so I decided
+to re-port it to a more generic target myself.
+
+And by the way, there is literally no release for this game on PortMaster, so the source of these ports going
+around is very shady
+
+### Generic Linux launcher
+
+Build `gtasa_linux`, make `Grand Theft Auto San Andreas.sh` executable, and
+place the launcher in the ports directory with the executable and user's
+Android ARM64 files under `gtasa/`:
+
+```text
+ports/
+├── Grand Theft Auto San Andreas.sh
+└── gtasa/
+    ├── gtasa_linux
+    ├── libSDL3.so.0
+    ├── libGame.so
+    ├── libc++_shared.so
+    ├── data/
+    ├── models/
+    ├── texdb/
+    └── audio/
+```
+
+The complete Android-package asset inventory, extraction commands, and runtime
+library distinctions are in [ASSET_PREPARATION.md](ASSET_PREPARATION.md). Use
+the matching ARM64 `libGame.so`, the port's vendored NDK `libc++_shared.so`,
+and preserve the Android package's asset paths and case.
+
+Launch with:
+
+```sh
+./Grand\ Theft\ Auto\ San\ Andreas.sh
+```
+
+The launcher supports `GTASA_GAME_DIR`, `GTASA_BINARY`, `GTASA_LOG`, and
+`GTASA_NO_LOG=1`. SDL3 selects the active Linux video/audio backend normally;
+`SDL_VIDEODRIVER`, `SDL_AUDIO_DRIVER`, and controller mapping variables may be
+overridden in the environment.
+
+### Linux input and audio
+
+- SDL3 gamepads feed native controller callbacks directly: face buttons, D-pad,
+  Start/Back, shoulders, stick clicks, sticks and triggers. No keyboard emulation
+  or keyboard fallback. Startup discovery, hotplug, focus reset, and up to four
+  contiguous controller slots are supported. `SDL_GAMECONTROLLERCONFIG` can
+  override mappings; the launcher imports PortMaster's mapping when available.
+- OpenAL Soft retains spatial mixing through `ALC_SOFT_loopback`; SDL3 owns the
+  playback stream (48 kHz stereo float PCM). Knulli's native PipeWire socket is
+  `/var/run/pipewire-0`; the launcher fills an unset `XDG_RUNTIME_DIR` and selects
+  PipeWire when that socket exists, without overriding explicit audio choices.
+- `GTASA_INPUT_DEBUG=1` logs native controller dispatch, and
+  `GTASA_AUDIO_DEBUG=1` reports mixed/non-silent PCM counters every five seconds.
+  Counters are diagnostics, not proof that speakers are audible.
+- The TRIMUI Smart Pro S controller and game audio were user-confirmed on Knulli.
+
+### Exit controls
+
+The launcher handles a PortMaster-style quit chord outside the Android game
+input layer: hold **Guide/Home and press Start**, or hold **Back/Select/Minus and
+press Start**. This requests a clean shutdown of the native game, audio stream, and
+SDL controller handles. Releasing only one button does not exit. A standalone
+SDL window's close/quit event also exits.
+
+The game itself receives Start and Back as ordinary native gamepad buttons. The
+v2.11.264 Android `implOnBackButtonPressed` entry point is a no-op, so the port
+does not claim that Back alone pauses or exits the game.
+
+The quit chord is a compile-time option and is enabled by default. Disable it
+with `-DGTASA_QUIT_CHORD=OFF` when configuring CMake, or explicitly enable it
+with `-DGTASA_QUIT_CHORD=ON`.
+
+Host tests (SDL3/OpenAL development packages required):
+
+```sh
+cmake -S . -B build-linux -DBUILD_TESTING=ON
+cmake --build build-linux -j2
+ctest --test-dir build-linux --output-on-failure
+```
+
+The input test uses SDL virtual gamepads and mocked native callbacks; the audio
+test uses real OpenAL mixing with SDL's dummy output. On-device, run
+`audio_linux_test` with `SDL_AUDIO_DRIVER=pipewire` for two short tones, or set
+`GTASA_AUDIO_TEST_MS=5000` for two five-second tones. See `AGENTS.md` for the
+persistent cross-build and hardware-testing workflow.
+
+### Binary release package
+
+After the AArch64 build and vendored runtime files are present, create a
+reproducible drop-in tarball with:
+
+```sh
+scripts/package-linux.sh 1.0.0
+```
+
+This writes `dist/gtasa-linux-1.0.0.tar.gz` and a `.sha256` sidecar. The archive
+contains the launcher, `gtasa_linux`, Linux SDL3, the vendored Android NDK C++
+runtime, and the 120-entry `assetfile.txt` manifest. It deliberately does not
+contain `libGame.so` or proprietary game assets; those are added from the
+matching official Android package during installation.
+
+### Original Switch installation (upstream reference only)
 
 You're going to need:
 * the **arm64-v8a** `.apk` (and `.obb`) for version **2.11.311**.

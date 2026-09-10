@@ -18,5 +18,7 @@ extern DynLibFunction dynlib_functions[];
 extern size_t dynlib_numfunctions;
 
 void update_imports(void);
+struct SDL_Window;
+void linux_set_sdl_context(struct SDL_Window *window, void *context);
 
 #endif

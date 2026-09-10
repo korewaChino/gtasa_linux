@@ -5,7 +5,7 @@
  * This software may be modified and distributed under the terms
  * of the MIT license.  See the LICENSE file for details.
  *
- * Serves both libGame.so and the C++ runtime donor (the APK's libopenal.so).
+ * Serves both libGame.so and the vendored Android NDK C++ runtime.
  * C++ runtime symbols (std::*, __cxa_*) resolve module-to-module from the donor,
  * not here. The table takes priority during resolution (see so_resolve_symbol).
  */
@@ -34,17 +34,17 @@
 #include <locale.h>
 #include <sys/time.h>
 #include <sys/stat.h>
-#include <sys/reent.h>
 #include <sys/socket.h>
 #include <sys/select.h>
 #include <netdb.h>
 #include <arpa/inet.h>
 #include <EGL/egl.h>
 #include <GLES2/gl2.h>
+#include <SDL3/SDL_video.h>
 #include <AL/al.h>
 #include <AL/alc.h>
 #include <mpg123.h>
-#include <switch.h>
+
 
 #include "config.h"
 #include "so_util.h"
@@ -56,7 +56,11 @@ extern uintptr_t __cxa_atexit;
 
 extern uintptr_t __stack_chk_fail;
 
-static char *__ctype_ = (char *)&_ctype_;
+static char *__ctype_;
+
+static int *errno_fake(void) {
+  return &errno;
+}
 
 static uint64_t __stack_chk_guard_fake = 0x4242424242424242;
 
@@ -70,9 +74,8 @@ static struct {
 } g_mc[MC_SLOTS];
 
 static inline void *mc_thread_key(void) {
-  void *p;
-  __asm__ volatile("mrs %0, tpidr_el0" : "=r"(p));
-  return p;
+  static _Thread_local int key;
+  return &key;
 }
 
 // ---------------------------------------------------------------------------
@@ -209,31 +212,93 @@ static void glDeleteProgram_c(GLuint p) {
 // entry. Kept in this TU so no cross-file symbol is needed. eglSwapBuffersHook is
 // defined in movie_player.c (already referenced by the import table below).
 extern unsigned int eglSwapBuffersHook(void *display, void *surface);
+static SDL_Window *g_sdl_window;
+static SDL_GLContext g_sdl_context;
+
+void linux_set_sdl_context(SDL_Window *window, void *context) {
+  g_sdl_window = window;
+  g_sdl_context = context;
+}
+
 static unsigned int eglSwapBuffers_cache(void *display, void *surface) {
+  static unsigned long frames;
   gl_state_cache_reset();
-  return eglSwapBuffersHook(display, surface);
+  (void)display;
+  (void)surface;
+  SDL_GL_SwapWindow(g_sdl_window);
+  unsigned int result = EGL_TRUE;
+  if ((++frames % 60) == 0)
+    debugPrintf("EGL: presented frame %lu (result=%u)\n", frames, result);
+  return result;
+}
+
+static EGLDisplay eglGetDisplay_trace(EGLNativeDisplayType native) {
+  debugPrintf("EGL: eglGetDisplay(%p)\n", native);
+  EGLDisplay dpy;
+  if (native == EGL_DEFAULT_DISPLAY) {
+    // KMSDRM/GBM does not necessarily make EGL_DEFAULT_DISPLAY usable. SDL
+    // already opened and initialized the platform display for its GL context.
+    dpy = (EGLDisplay)(uintptr_t)1;
+    debugPrintf("EGL: using sentinel display for SDL-owned KMSDRM\n");
+  } else {
+    dpy = eglGetDisplay(native);
+  }
+  debugPrintf("EGL: eglGetDisplay -> %p\n", dpy);
+  return dpy;
+}
+
+static EGLBoolean eglInitialize_trace(EGLDisplay dpy, EGLint *major, EGLint *minor) {
+  debugPrintf("EGL: eglInitialize(%p)\n", dpy);
+  (void)dpy;
+  if (major) *major = 1;
+  if (minor) *minor = 5;
+  EGLBoolean ok = EGL_TRUE;
+  debugPrintf("EGL: eglInitialize -> sentinel success (%d.%d)\n", major ? *major : 0,
+              minor ? *minor : 0);
+  return ok;
+}
+
+static EGLBoolean eglChooseConfig_trace(EGLDisplay dpy, const EGLint *attrs,
+                                         EGLConfig *configs, EGLint size,
+                                         EGLint *count) {
+  debugPrintf("EGL: eglChooseConfig(%p, size=%d)\n", dpy, size);
+  (void)dpy;
+  (void)attrs;
+  if (count) *count = size > 0 ? 1 : 4;
+  if (configs && size > 0) configs[0] = (EGLConfig)(uintptr_t)1;
+  EGLBoolean ok = EGL_TRUE;
+  debugPrintf("EGL: eglChooseConfig -> %d (count=%d, err=0x%x)\n", ok,
+              count ? *count : 0, eglGetError());
+  return ok;
+}
+
+static EGLContext eglCreateContext_trace(EGLDisplay dpy, EGLConfig config,
+                                          EGLContext share, const EGLint *attrs) {
+  (void)dpy; (void)config; (void)share; (void)attrs;
+  debugPrintf("EGL: eglCreateContext -> sentinel\n");
+  return (EGLContext)(uintptr_t)1;
+}
+
+static EGLSurface eglCreateWindowSurface_trace(EGLDisplay dpy, EGLConfig config,
+                                                EGLNativeWindowType native,
+                                                const EGLint *attrs) {
+  (void)dpy; (void)config; (void)native; (void)attrs;
+  debugPrintf("EGL: eglCreateWindowSurface -> sentinel (window=%p)\n",
+              (void *)g_sdl_window);
+  return (EGLSurface)(uintptr_t)1;
 }
 
 static EGLBoolean eglMakeCurrent_dedup(EGLDisplay dpy, EGLSurface draw,
                                        EGLSurface read, EGLContext ctx) {
-  void *key = mc_thread_key();
-  int slot = -1, freeslot = -1;
-  for (int i = 0; i < MC_SLOTS; i++) {
-    if (g_mc[i].key == key) { slot = i; break; }
-    if (!g_mc[i].key && freeslot < 0) freeslot = i;
-  }
-  if (slot >= 0 && g_mc[slot].dpy == dpy && g_mc[slot].draw == draw &&
-      g_mc[slot].read == read && g_mc[slot].ctx == ctx)
-    return EGL_TRUE; // already current on this thread -> skip the redundant bind
-
-  EGLBoolean r = eglMakeCurrent(dpy, draw, read, ctx);
-  if (r) {
-    gl_state_cache_reset(); // context/surface changed -> GL state cache is stale
-    if (slot < 0) slot = (freeslot >= 0) ? freeslot : 0;
-    g_mc[slot].key = key; g_mc[slot].dpy = dpy;
-    g_mc[slot].draw = draw; g_mc[slot].read = read; g_mc[slot].ctx = ctx;
-  }
-  return r;
+  (void)dpy; (void)read;
+  const SDL_GLContext target = (ctx == EGL_NO_CONTEXT || draw == EGL_NO_SURFACE)
+      ? NULL : g_sdl_context;
+  EGLBoolean ok = SDL_GL_MakeCurrent(g_sdl_window, target);
+  debugPrintf("EGL: eglMakeCurrent -> SDL_GL_MakeCurrent(%s, %d)\n",
+              target ? "acquire" : "release", ok);
+  if (ok)
+    gl_state_cache_reset();
+  return ok ? EGL_TRUE : EGL_FALSE;
 }
 
 // The world load creates thousands of buffers/textures without presenting, so
@@ -261,9 +326,8 @@ static void glBufferData_w(GLenum target, GLsizeiptr size, const void *data,
 
 FILE *stderr_fake = (FILE *)&fake_sF[2];
 
-// OpenAL hooks living in hooks/openal.c (frequency override + device capture)
-extern ALCcontext *alcCreateContextHook(ALCdevice *dev, const ALCint *unused);
-extern ALCdevice *alcOpenDeviceHook(const char *name);
+// OpenAL Soft spatial mixing with SDL3 playback.
+#include "audio_linux.h"
 
 void __assert2(const char *file, int line, const char *func, const char *expr) {
   debugPrintf("assertion failed:\n%s:%d (%s): %s\n", file, line, func, expr);
@@ -323,7 +387,15 @@ int pthread_mutex_init_fake(pthread_mutex_t **uid, const int *mutexattr) {
   // Force RECURSIVE on every engine mutex: mutexattr_settype is stubbed out, and
   // the engine relies on recursive re-locking (else the world load self-deadlocks).
   (void)mutexattr;
-  *m = PTHREAD_RECURSIVE_MUTEX_INITIALIZER;
+  pthread_mutexattr_t attr;
+  if (pthread_mutexattr_init(&attr) != 0 ||
+      pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE) != 0 ||
+      pthread_mutex_init(m, &attr) != 0) {
+    pthread_mutexattr_destroy(&attr);
+    free(m);
+    return -1;
+  }
+  pthread_mutexattr_destroy(&attr);
   *uid = m;
   return 0;
 }
@@ -376,8 +448,6 @@ int pthread_mutex_unlock_fake(pthread_mutex_t **uid) {
 int pthread_cond_init_fake(pthread_cond_t **cnd, const int *condattr) {
   pthread_cond_t *c = calloc(1, sizeof(pthread_cond_t));
   if (!c) return -1;
-
-  *c = PTHREAD_COND_INITIALIZER;
 
   int ret = pthread_cond_init(c, NULL);
   if (ret < 0) {
@@ -502,7 +572,7 @@ static int getpid_fake(void) {
 }
 
 static int sched_yield_fake(void) {
-  svcSleepThread(0);
+  sched_yield();
   return 0;
 }
 
@@ -618,7 +688,7 @@ DynLibFunction dynlib_functions[] = {
   { "__android_log_vprint", (uintptr_t)__android_log_vprint },
   { "android_set_abort_message", (uintptr_t)&android_set_abort_message_fake },
 
-  { "__errno", (uintptr_t)&__errno },
+  { "__errno", (uintptr_t)&errno_fake },
 
   { "__stack_chk_fail", (uintptr_t)&__stack_chk_fail },
   // freezes with real __stack_chk_guard
@@ -698,13 +768,13 @@ DynLibFunction dynlib_functions[] = {
 
   // EGL: the game creates and manages its own context now
   { "eglGetProcAddress", (uintptr_t)&eglGetProcAddress },
-  { "eglGetDisplay", (uintptr_t)&eglGetDisplay },
+  { "eglGetDisplay", (uintptr_t)&eglGetDisplay_trace },
   { "eglQueryString", (uintptr_t)&eglQueryString },
-  { "eglInitialize", (uintptr_t)&eglInitialize },
-  { "eglChooseConfig", (uintptr_t)&eglChooseConfig },
+  { "eglInitialize", (uintptr_t)&eglInitialize_trace },
+  { "eglChooseConfig", (uintptr_t)&eglChooseConfig_trace },
   { "eglGetConfigAttrib", (uintptr_t)&eglGetConfigAttrib },
-  { "eglCreateContext", (uintptr_t)&eglCreateContext },
-  { "eglCreateWindowSurface", (uintptr_t)&eglCreateWindowSurface },
+  { "eglCreateContext", (uintptr_t)&eglCreateContext_trace },
+  { "eglCreateWindowSurface", (uintptr_t)&eglCreateWindowSurface_trace },
   { "eglDestroySurface", (uintptr_t)&eglDestroySurface },
   { "eglDestroyContext", (uintptr_t)&eglDestroyContext },
   { "eglMakeCurrent", (uintptr_t)&eglMakeCurrent_dedup },
@@ -740,7 +810,7 @@ DynLibFunction dynlib_functions[] = {
   { "alSourceUnqueueBuffers", (uintptr_t)&alSourceUnqueueBuffers },
   { "alSourcef", (uintptr_t)&alSourcef },
   { "alSourcei", (uintptr_t)&alSourcei },
-  { "alcCloseDevice", (uintptr_t)&alcCloseDevice },
+  { "alcCloseDevice", (uintptr_t)&alcCloseDeviceHook },
   { "alcCreateContext", (uintptr_t)&alcCreateContextHook },
   { "alcDestroyContext", (uintptr_t)&alcDestroyContext },
   { "alcGetError", (uintptr_t)&alcGetError },
@@ -1058,6 +1128,7 @@ DynLibFunction dynlib_functions[] = {
   { "hypot", (uintptr_t)&hypot },
   { "ldexpf", (uintptr_t)&ldexpf },
   { "log2f", (uintptr_t)&log2f },
+  { "sinh", (uintptr_t)&sinh },
   { "sinhf", (uintptr_t)&sinhf },
   { "sincos", (uintptr_t)&sincos_fake },
   { "clearerr", (uintptr_t)&clearerr },

@@ -27,10 +27,12 @@
 #include <wctype.h>
 #include <time.h>
 #include <semaphore.h>
+#include <pthread.h>
 #include <sys/stat.h>
 #include <sys/select.h>
 #include <sys/socket.h>
-#include <switch.h>
+#include <sys/syscall.h>
+#include <SDL3/SDL.h>
 
 #include "config.h"
 #include "util.h"
@@ -141,10 +143,8 @@ unsigned long getauxval_fake(unsigned long type) {
 }
 
 int gettid_fake(void) {
-  u64 thread_id = 1;
-  if (R_SUCCEEDED(svcGetThreadId(&thread_id, CUR_THREAD_HANDLE)) && thread_id)
-    return (int)(thread_id & 0x7fffffff);
-  return 1;
+  long thread_id = syscall(SYS_gettid);
+  return thread_id > 0 ? (int)(thread_id & 0x7fffffff) : 1;
 }
 
 #define ARM64_SYS_GETTID 178
@@ -296,7 +296,7 @@ int setsockopt_fake(int fd, int level, int optname, const void *optval, uint32_t
       case 15:     on = SO_REUSEPORT; break;
       case 20:     on = SO_RCVTIMEO;  break;
       case 21:     on = SO_SNDTIMEO;  break;
-      case 0x4000: on = SO_NO_OFFLOAD; break;
+      case 0x4000: return 0; // Switch-only offload hint; no Linux equivalent
       default:     break; // pass unknown optnames through unchanged
     }
   }
@@ -816,12 +816,12 @@ void *AAssetManager_open_fake(void *mgr, const char *path, int mode) {
   FILE *f = open_asset_with_fallback(path);
   if (!f) {
     if (path_is_mp3(path)) {
-      FILE *sf = fmemopen((void *)silent_bin, silent_bin_size, "rb");
+      FILE *sf = fmemopen((void *)silent_bin, silent_bin_len, "rb");
       if (sf) {
         debugPrintf("AAsset: open(%s) -> MISSING, silent.mp3 stand-in\n", path);
         Asset *a = malloc(sizeof(*a));
         a->f = sf;
-        a->size = (long)silent_bin_size;
+        a->size = (long)silent_bin_len;
         return a;
       }
     }
@@ -883,13 +883,21 @@ int64_t AAsset_getRemainingLength64_fake(void *asset) {
 }
 
 // ---------------------------------------------------------------------------
-// ANativeWindow -> NWindow mapping
+// ANativeWindow -> SDL3 window mapping
 // ---------------------------------------------------------------------------
+
+typedef struct {
+  int width;
+  int height;
+} LinuxNativeWindow;
+
+static LinuxNativeWindow g_native_window;
 
 void *ANativeWindow_fromSurface_fake(void *env, void *surface) {
   (void)env; (void)surface;
-  NWindow *win = nwindowGetDefault();
-  nwindowSetDimensions(win, screen_width, screen_height);
+  LinuxNativeWindow *win = &g_native_window;
+  win->width = screen_width;
+  win->height = screen_height;
   debugPrintf("ANativeWindow_fromSurface -> %p (%dx%d)\n", win, screen_width, screen_height);
   return win;
 }
@@ -911,8 +919,10 @@ void ANativeWindow_release_fake(void *win) {
 int ANativeWindow_setBuffersGeometry_fake(void *win, int w, int h, int format) {
   (void)format;
   debugPrintf("ANativeWindow_setBuffersGeometry(%d, %d)\n", w, h);
-  if (w > 0 && h > 0)
-    nwindowSetDimensions((NWindow *)win, w, h);
+  if (w > 0 && h > 0) {
+    g_native_window.width = w;
+    g_native_window.height = h;
+  }
   return 0;
 }
 
@@ -922,46 +932,42 @@ int ANativeWindow_setBuffersGeometry_fake(void *win, int w, int h, int format) {
 // ---------------------------------------------------------------------------
 
 typedef struct {
-  RwLock lock;
+  pthread_rwlock_t lock;
 } FakeRwLock;
 
 static FakeRwLock *get_rwlock(void **storage) {
   if (!*storage) {
     FakeRwLock *l = calloc(1, sizeof(*l));
-    rwlockInit(&l->lock);
+    pthread_rwlock_init(&l->lock, NULL);
     *storage = l;
   }
   return *storage;
 }
 
 int pthread_rwlock_rdlock_fake(void **rw) {
-  rwlockReadLock(&get_rwlock(rw)->lock);
+  pthread_rwlock_rdlock(&get_rwlock(rw)->lock);
   return 0;
 }
 
 int pthread_rwlock_wrlock_fake(void **rw) {
-  rwlockWriteLock(&get_rwlock(rw)->lock);
+  pthread_rwlock_wrlock(&get_rwlock(rw)->lock);
   return 0;
 }
 
 int pthread_rwlock_unlock_fake(void **rw) {
   FakeRwLock *l = get_rwlock(rw);
-  // libnx needs to know which way it was locked
-  if (rwlockIsWriteLockHeldByCurrentThread(&l->lock))
-    rwlockWriteUnlock(&l->lock);
-  else
-    rwlockReadUnlock(&l->lock);
+  pthread_rwlock_unlock(&l->lock);
   return 0;
 }
 
 typedef struct {
-  Semaphore sem;
+  sem_t sem;
 } FakeSem;
 
 int sem_init_fake(void **s, int pshared, unsigned int value) {
   (void)pshared;
   FakeSem *fs = calloc(1, sizeof(*fs));
-  semaphoreInit(&fs->sem, value);
+  sem_init(&fs->sem, 0, value);
   *s = fs;
   return 0;
 }
@@ -976,18 +982,18 @@ int sem_destroy_fake(void **s) {
 
 int sem_post_fake(void **s) {
   if (s && *s)
-    semaphoreSignal(&((FakeSem *)*s)->sem);
+    sem_post(&((FakeSem *)*s)->sem);
   return 0;
 }
 
 int sem_wait_fake(void **s) {
   if (s && *s)
-    semaphoreWait(&((FakeSem *)*s)->sem);
+    sem_wait(&((FakeSem *)*s)->sem);
   return 0;
 }
 
 int sem_trywait_fake(void **s) {
-  if (s && *s && semaphoreTryWait(&((FakeSem *)*s)->sem))
+  if (s && *s && sem_trywait(&((FakeSem *)*s)->sem) == 0)
     return 0;
   errno = EAGAIN;
   return -1;
@@ -995,7 +1001,7 @@ int sem_trywait_fake(void **s) {
 
 int sem_getvalue_fake(void **s, int *val) {
   if (s && *s)
-    *val = (int)((FakeSem *)*s)->sem.count;
+    sem_getvalue(&((FakeSem *)*s)->sem, val);
   else
     *val = 0;
   return 0;

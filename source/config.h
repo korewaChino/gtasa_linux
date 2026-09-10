@@ -15,9 +15,8 @@
 // streaming, so keep it small.
 #define MEMORY_SO_MB 64
 
-// libc++_shared.so is the C++ runtime donor: the game's std::/__cxa_ imports
-// resolve into it module-to-module. OpenAL still binds to native openal-soft
-// because the import table beats module exports (so_resolve_symbol).
+// The Android NDK C++ runtime is vendored with the Linux port. The loader
+// resolves libGame.so's std::/__cxa imports into it.
 #define SO_NAME "libGame.so"
 #define CXX_DONOR_SO_NAME "libc++_shared.so"
 // the game ships its own binary "config.txt" at the data root, so the wrapper's

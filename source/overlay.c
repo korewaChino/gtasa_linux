@@ -11,8 +11,8 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
-#include <switch.h>
 
+#include <SDL3/SDL.h>
 #include <EGL/egl.h>
 #include <GLES2/gl2.h>
 
@@ -138,14 +138,14 @@ static int emit_line(const char *text, int len, float x, float y,
 // FPS counter (config.show_fps): draws the rate top-left, refreshed twice a
 // second. Saves and restores all the GL state it touches.
 static struct {
-  u64 window_start;
-  u32 frames;
+  uint64_t window_start;
+  uint32_t frames;
   char text[8];
 } fps;
 
 static void fps_render(void) {
-  const u64 now = armGetSystemTick();
-  const u64 freq = armGetSystemTickFreq();
+  const uint64_t now = SDL_GetTicksNS();
+  const uint64_t freq = 1000000000ULL;
   fps.frames++;
   if (!fps.window_start)
     fps.window_start = now;

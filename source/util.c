@@ -1,93 +1,104 @@
-/* util.c -- misc utility functions
+/* util.c -- Linux utility functions
  *
- * Copyright (C) 2021 fgsfds, Andy Nguyen
- *
- * This software may be modified and distributed under the terms
- * of the MIT license.  See the LICENSE file for details.
+ * The original Switch implementation provided nxlink logging, CPU boost,
+ * thread suspension, and libnx TLS helpers.  Linux keeps the same small API
+ * for the game-facing code, but uses ordinary POSIX facilities instead.
  */
 
-#include <switch.h>
+#define _GNU_SOURCE
+#include <errno.h>
+#include <pthread.h>
+#include <sched.h>
+#include <stdarg.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <stdarg.h>
 #include <string.h>
 #include <unistd.h>
 
 #include "util.h"
 #include "config.h"
 
-#ifdef DEBUG_LOG
-
-static int s_nxlinkSock = -1;
-
-static void initNxLink(void) {
-  if (R_FAILED(socketInitializeDefault()))
-    return;
-  s_nxlinkSock = nxlinkStdio();
-  if (s_nxlinkSock < 0)
-    socketExit();
-}
-
-static void deinitNxLink(void) {
-  if (s_nxlinkSock >= 0) {
-    close(s_nxlinkSock);
-    socketExit();
-    s_nxlinkSock = -1;
-  }
-}
+static FILE *g_log;
+static pthread_mutex_t g_log_lock = PTHREAD_MUTEX_INITIALIZER;
 
 void userAppInit(void) {
-  initNxLink();
+#ifdef DEBUG_LOG
+  pthread_mutex_lock(&g_log_lock);
+  if (!g_log)
+    g_log = fopen(LOG_NAME, "w");
+  pthread_mutex_unlock(&g_log_lock);
+#endif
 }
 
 void userAppExit(void) {
-  deinitNxLink();
+  pthread_mutex_lock(&g_log_lock);
+  if (g_log) {
+    fclose(g_log);
+    g_log = NULL;
+  }
+  pthread_mutex_unlock(&g_log_lock);
 }
 
-#endif
-
-// the game's `printf` import points here; a no-op with DEBUG_LOG off. The log
-// file is kept open for the run (reopening per line on FAT is slow) and flushed
-// each line to survive an abrupt exit.
+/* The Android game imports printf through the loader's import table. */
 int debugPrintf(char *text, ...) {
 #ifdef DEBUG_LOG
   va_list list;
-  static FILE *f = NULL;
-  if (!f)
-    f = fopen(LOG_NAME, "w"); // fresh log each boot
-  if (f) {
-    va_start(list, text);
-    vfprintf(f, text, list);
-    va_end(list);
-    fflush(f);
-  }
+  pthread_mutex_lock(&g_log_lock);
+
+  if (!g_log)
+    g_log = fopen(LOG_NAME, "w");
+
   va_start(list, text);
-  vprintf(text, list); // also to nxlink stdout, if a host is connected
+  if (g_log) {
+    vfprintf(g_log, text, list);
+    fflush(g_log);
+  }
   va_end(list);
+
+  va_start(list, text);
+  vfprintf(stderr, text, list);
+  va_end(list);
+  pthread_mutex_unlock(&g_log_lock);
+#else
+  (void)text;
 #endif
   return 0;
 }
 
-// boost the CPU to 1785MHz while loading
+size_t strlcpy(char *dst, const char *src, size_t dst_size) {
+  size_t src_len = strlen(src);
+  if (dst_size != 0) {
+    size_t copy_len = src_len < dst_size - 1 ? src_len : dst_size - 1;
+    memcpy(dst, src, copy_len);
+    dst[copy_len] = '\0';
+  }
+  return src_len;
+}
+
+/* Linux does not expose a portable userspace CPU-boost API. */
 void cpu_boost(int on) {
-  appletSetCpuBoostMode(on ? ApmCpuBoostMode_FastLoad : ApmCpuBoostMode_Normal);
+  (void)on;
 }
 
-// pin the calling thread to a single core. Only pins to cores actually granted
-// to this process (cores 0..2 for an application; core 3 is the system core),
-// so an out-of-range request just leaves the thread on its default core.
 void set_thread_core(int core) {
-  static u64 mask = 0;
-  if (mask == 0)
-    svcGetInfo(&mask, InfoType_CoreMask, CUR_PROCESS_HANDLE, 0);
-  if (core < 0 || !(mask & (1ull << core)))
+  if (core < 0 || core >= CPU_SETSIZE)
     return;
-  Result rc = svcSetThreadCoreMask(CUR_THREAD_HANDLE, core, 1ull << core);
-  if (R_FAILED(rc))
-    debugPrintf("affinity: pin to core %d failed: %08x\n", core, rc);
+
+  cpu_set_t set;
+  CPU_ZERO(&set);
+  CPU_SET((unsigned)core, &set);
+  if (pthread_setaffinity_np(pthread_self(), sizeof(set), &set) != 0)
+    debugPrintf("affinity: pin to core %d failed: %s\n", core, strerror(errno));
 }
 
-// Android AArch64 stack guards read their canary at TPIDR_EL0+0x28.
+/*
+ * Android's AArch64 stack guard is read from TPIDR_EL0+0x28.  The Switch
+ * version installs a private TPIDR_EL0 block.  Linux owns TPIDR_EL0 for the
+ * pthread TLS ABI, so do not overwrite it here; return an aligned guard block
+ * for callers that only need the expected memory layout.  The actual Linux
+ * TLS/stack-guard bridge belongs in the Bionic compatibility layer.
+ */
 #define MAX_GAME_TLS_THREADS 64
 #define GAME_TLS_SIZE 0x1000
 #define GAME_TLS_GUARD UINT64_C(0x4242424242424242)
@@ -108,35 +119,28 @@ void *game_tls_install(void) {
   memset(tls, 0, GAME_TLS_SIZE);
   const uint64_t guard = GAME_TLS_GUARD;
   memcpy(tls + 0x28, &guard, sizeof(guard));
-  armSetTlsRw(tls);
   return tls;
 }
 
-// --- thread registry (see util.h) -----------------------------------------
 #define MAX_TRACKED_THREADS 64
-static Handle g_thread_handles[MAX_TRACKED_THREADS];
-static int g_thread_count; // grow-only; index reserved with an atomic add
+static pthread_t g_thread_handles[MAX_TRACKED_THREADS];
+static int g_thread_count;
+static pthread_mutex_t g_thread_lock = PTHREAD_MUTEX_INITIALIZER;
 
 void thread_registry_add(void) {
-  int i = __atomic_fetch_add(&g_thread_count, 1, __ATOMIC_RELAXED);
-  if (i < MAX_TRACKED_THREADS)
-    g_thread_handles[i] = threadGetCurHandle();
+  pthread_mutex_lock(&g_thread_lock);
+  if (g_thread_count < MAX_TRACKED_THREADS)
+    g_thread_handles[g_thread_count++] = pthread_self();
+  pthread_mutex_unlock(&g_thread_lock);
 }
 
 void thread_registry_pause_others(void) {
-  Handle self = threadGetCurHandle();
+  /* POSIX has no safe portable equivalent to Switch thread suspension. */
+  pthread_mutex_lock(&g_thread_lock);
   int n = g_thread_count;
-  if (n > MAX_TRACKED_THREADS)
-    n = MAX_TRACKED_THREADS;
-  int paused = 0;
-  for (int i = 0; i < n; i++) {
-    Handle h = g_thread_handles[i];
-    if (h && h != self && R_SUCCEEDED(svcSetThreadActivity(h, ThreadActivity_Paused)))
-      paused++;
-  }
-  debugPrintf("EXIT: paused %d/%d engine threads\n", paused, n);
+  pthread_mutex_unlock(&g_thread_lock);
+  debugPrintf("EXIT: Linux thread suspension unavailable (%d tracked)\n", n);
 }
 
 int ret0(void) { return 0; }
-
 int retm1(void) { return -1; }

@@ -13,7 +13,7 @@
 #include <stdint.h>
 #include <stdarg.h>
 #include <string.h>
-#include <switch.h>
+
 
 #include "config.h"
 #include "util.h"

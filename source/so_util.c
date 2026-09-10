@@ -9,8 +9,10 @@
  * RELR/ANDROID_RELR packed relocations.
  */
 
-#include <switch.h>
 #include <assert.h>
+#include <errno.h>
+#include <sys/mman.h>
+#include <unistd.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -44,8 +46,8 @@ void hook_arm64(uintptr_t addr, uintptr_t dst) {
 }
 
 void so_flush_caches(so_module *mod) {
-  armDCacheFlush(mod->load_virtbase, mod->load_size);
-  armICacheInvalidate(mod->load_virtbase, mod->load_size);
+  __builtin___clear_cache((char *)mod->load_virtbase,
+                          (char *)mod->load_virtbase + mod->load_size);
 }
 
 void so_free_temp(so_module *mod) {
@@ -54,15 +56,8 @@ void so_free_temp(so_module *mod) {
 }
 
 void so_finalize(so_module *mod) {
-  Result rc = 0;
-
-  // map the entire thing as code memory
-  rc = svcMapProcessCodeMemory(envGetOwnProcessHandle(), (u64)mod->load_virtbase, (u64)mod->load_base, mod->load_size);
-  if (R_FAILED(rc)) fatal_error("Error: svcMapProcessCodeMemory failed:\n%08x", rc);
-
-  // The kernel forbids W->X on code memory, so set RX pages first (from the
-  // freshly-mapped state) and everything else RW after. Build a per-page map
-  // so each page gets exactly one permission, covering lld's inter-segment gaps.
+  // Linux maps the image directly into its final address range.  Apply the
+  // final ELF segment permissions after relocations and hooks are complete.
   const size_t num_pages = mod->load_size / 0x1000;
   uint8_t *is_x_page = calloc(num_pages, 1);
   if (!is_x_page) fatal_error("Error: out of memory in so_finalize");
@@ -77,7 +72,8 @@ void so_finalize(so_module *mod) {
       is_x_page[pg] = 1;
   }
 
-  // first pass sets RX runs, second sets the rest RW
+  // First pass sets RX runs, second sets the rest RW.  Keeping the passes
+  // separate avoids ever asking Linux for writable+executable memory.
   for (int want_x = 1; want_x >= 0; want_x--) {
     size_t pg = 0;
     while (pg < num_pages) {
@@ -88,10 +84,12 @@ void so_finalize(so_module *mod) {
       size_t run_end = pg;
       while (run_end < num_pages && is_x_page[run_end] == want_x)
         run_end++;
-      const u64 addr = (u64)mod->load_virtbase + pg * 0x1000;
-      const u64 size = (run_end - pg) * 0x1000;
-      rc = svcSetProcessMemoryPermission(envGetOwnProcessHandle(), addr, size, want_x ? Perm_Rx : Perm_Rw);
-      if (R_FAILED(rc)) fatal_error("Error: could not map %u bytes of %s memory at %p:\n%08x", (u32)size, want_x ? "RX" : "RW", (void *)addr, rc);
+      void *addr = (char *)mod->load_virtbase + pg * 0x1000;
+      size_t size = (run_end - pg) * 0x1000;
+      int prot = want_x ? (PROT_READ | PROT_EXEC) : (PROT_READ | PROT_WRITE);
+      if (mprotect(addr, size, prot) != 0)
+        fatal_error("Error: mprotect(%p, %zu, %s) failed: %s\n", addr, size,
+                    want_x ? "RX" : "RW", strerror(errno));
       pg = run_end;
     }
   }
@@ -153,22 +151,23 @@ int so_load(so_module *mod, const char *filename, void *base, size_t max_size) {
   }
 
   mod->load_size = ALIGN_MEM(mod->load_size, 0x1000);
-  if (mod->load_size > max_size) {
+  if (max_size && mod->load_size > max_size) {
     res = -3;
     goto err_free_so;
   }
 
-  mod->load_base = base;
-  if (!mod->load_base) goto err_free_so;
-  memset(mod->load_base, 0, mod->load_size);
+  (void)base; // Linux uses one mapping for both the staging and runtime image.
+  mod->load_base = mmap(NULL, mod->load_size, PROT_READ | PROT_WRITE,
+                        MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  if (mod->load_base == MAP_FAILED) {
+    mod->load_base = NULL;
+    res = -4;
+    goto err_free_so;
+  }
+  mod->load_virtbase = mod->load_base;
 
-  // reserve virtual memory space for the entire LOAD zone
-  virtmemLock();
-  mod->load_virtbase = virtmemFindCodeMemory(mod->load_size, 0x1000);
-  mod->load_memrv = virtmemAddReservation(mod->load_virtbase, mod->load_size);
-  virtmemUnlock();
-
-  debugPrintf("%s: load base = %p, size = %u KB\n", filename, mod->load_virtbase, (u32)(mod->load_size / 1024));
+  debugPrintf("%s: load base = %p, size = %zu KB\n", filename,
+              mod->load_virtbase, mod->load_size / 1024);
 
   // copy LOAD segments into place and rebase the runtime phdrs onto load_virtbase
   for (int i = 0; i < mod->elf_hdr->e_phnum; i++) {
@@ -212,9 +211,9 @@ int so_load(so_module *mod, const char *filename, void *base, size_t max_size) {
   return 0;
 
 err_free_load:
-  virtmemLock();
-  virtmemRemoveReservation(mod->load_memrv);
-  virtmemUnlock();
+  munmap(mod->load_base, mod->load_size);
+  mod->load_base = NULL;
+  mod->load_virtbase = NULL;
 err_free_so:
   free(mod->so_base);
   mod->so_base = NULL;
@@ -308,7 +307,7 @@ int so_relocate(so_module *mod) {
     relr_size = so_dynamic_tag(mod, DT_ANDROID_RELRSZ);
   }
   if (relr_off && relr_size) {
-    debugPrintf("%s: processing %u bytes of RELR relocations\n", mod->name, (u32)relr_size);
+    debugPrintf("%s: processing %zu bytes of RELR relocations\n", mod->name, relr_size);
     so_process_relr(mod, (const Elf64_Xword *)((uintptr_t)mod->load_base + relr_off), relr_size);
   }
 
@@ -458,22 +457,10 @@ int so_unload(so_module *mod) {
     so_free_temp(mod);
   }
 
-  // remap everything as RW
-  for (int i = 0; i < mod->phnum; i++) {
-    const Elf64_Phdr *p = &mod->phdr[i];
-    if (p->p_type != PT_LOAD || !(p->p_flags & PF_X))
-      continue;
-    const u64 seg_start = ((u64)mod->load_virtbase + p->p_vaddr) & ~0xFFFull;
-    const u64 seg_end = ALIGN_MEM((u64)mod->load_virtbase + p->p_vaddr + p->p_memsz, 0x1000);
-    svcSetProcessMemoryPermission(envGetOwnProcessHandle(), seg_start, seg_end - seg_start, Perm_Rw);
-  }
-  // unmap everything
-  svcUnmapProcessCodeMemory(envGetOwnProcessHandle(), (u64)mod->load_virtbase, (u64)mod->load_base, mod->load_size);
-
-  // release virtual address range
-  virtmemLock();
-  virtmemRemoveReservation(mod->load_memrv);
-  virtmemUnlock();
+  if (munmap(mod->load_base, mod->load_size) != 0)
+    return -1;
+  mod->load_base = NULL;
+  mod->load_virtbase = NULL;
 
   // remove from list
   if (so_list == mod) {

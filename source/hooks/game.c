@@ -12,7 +12,7 @@
 #include <string.h>
 #include <threads.h>
 #include <math.h>
-#include <switch.h>
+
 
 #include "../config.h"
 #include "../util.h"
