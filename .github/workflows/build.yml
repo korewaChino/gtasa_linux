@@ -106,7 +106,7 @@ jobs:
           cp -L /usr/local/lib/libSDL3.so.0 libSDL3.so.0
           VERSION="${INPUT_VERSION:-$RELEASE_TAG}"
           if [ -z "$VERSION" ]; then
-            VERSION="snapshot-${GITHUB_SHA:0:12}"
+            VERSION="snapshot-$(printf '%s' "$GITHUB_SHA" | cut -c 1-12)"
           fi
           scripts/package-linux.sh "$VERSION" dist
 
