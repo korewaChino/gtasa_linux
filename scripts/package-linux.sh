@@ -7,10 +7,12 @@ ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)"
 VERSION="${1:-}"
 OUTPUT_DIR="${2:-$ROOT_DIR/dist}"
 BINARY="${GTASA_BINARY:-$ROOT_DIR/build-aarch64/gtasa_linux}"
+CONSOLE_UI="${GTASA_CONSOLE_UI:-1}"
 
 usage() {
     printf 'usage: %s VERSION [OUTPUT_DIR]\n' "$(basename "$0")" >&2
     printf '       GTASA_BINARY=/path/to/gtasa_linux %s VERSION\n' "$(basename "$0")" >&2
+    printf '       GTASA_CONSOLE_UI=0 %s VERSION  # omit Adjustable.cfg\n' "$(basename "$0")" >&2
 }
 
 if [[ -z "$VERSION" || ! "$VERSION" =~ ^[A-Za-z0-9._-]+$ ]]; then
@@ -18,11 +20,23 @@ if [[ -z "$VERSION" || ! "$VERSION" =~ ^[A-Za-z0-9._-]+$ ]]; then
     exit 2
 fi
 
-for required in "$BINARY" \
-    "$ROOT_DIR/Grand Theft Auto San Andreas.sh" \
-    "$ROOT_DIR/libSDL3.so.0" \
-    "$ROOT_DIR/libc++_shared.so" \
-    "$ROOT_DIR/assetfile.txt"; do
+if [[ "$CONSOLE_UI" != 0 && "$CONSOLE_UI" != 1 ]]; then
+    printf 'package: GTASA_CONSOLE_UI must be 0 or 1\n' >&2
+    exit 2
+fi
+
+required_files=(
+    "$BINARY"
+    "$ROOT_DIR/Grand Theft Auto San Andreas.sh"
+    "$ROOT_DIR/libSDL3.so.0"
+    "$ROOT_DIR/libc++_shared.so"
+    "$ROOT_DIR/assetfile.txt"
+)
+if [[ "$CONSOLE_UI" == 1 ]]; then
+    required_files+=("$ROOT_DIR/Adjustable.cfg")
+fi
+
+for required in "${required_files[@]}"; do
     if [[ ! -f "$required" ]]; then
         printf 'package: missing required file: %s\n' "$required" >&2
         exit 1
@@ -62,6 +76,9 @@ install -m 0755 "$BINARY" "$GAME_DIR/gtasa_linux"
 install -m 0644 "$ROOT_DIR/libSDL3.so.0" "$GAME_DIR/libSDL3.so.0"
 install -m 0644 "$ROOT_DIR/libc++_shared.so" "$GAME_DIR/libc++_shared.so"
 install -m 0644 "$ROOT_DIR/assetfile.txt" "$GAME_DIR/assetfile.txt"
+if [[ "$CONSOLE_UI" == 1 ]]; then
+    install -m 0644 "$ROOT_DIR/Adjustable.cfg" "$GAME_DIR/Adjustable.cfg"
+fi
 
 ARCHIVE="$OUTPUT_DIR/$PACKAGE_NAME.tar.gz"
 tar --sort=name --mtime='UTC 1970-01-01' \
@@ -78,6 +95,9 @@ expected=(
     "$PACKAGE_NAME/gtasa/libSDL3.so.0"
     "$PACKAGE_NAME/gtasa/libc++_shared.so"
 )
+if [[ "$CONSOLE_UI" == 1 ]]; then
+    expected+=("$PACKAGE_NAME/gtasa/Adjustable.cfg")
+fi
 mapfile -t actual < <(tar -tzf "$ARCHIVE" | LC_ALL=C sort)
 mapfile -t expected_sorted < <(printf '%s\n' "${expected[@]}" | LC_ALL=C sort)
 if [[ "${actual[*]}" != "${expected_sorted[*]}" ]]; then

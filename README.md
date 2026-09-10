@@ -114,7 +114,9 @@ This writes `dist/gtasa-linux-1.0.0.tar.gz` and a `.sha256` sidecar. The archive
 contains the launcher, `gtasa_linux`, Linux SDL3, the vendored Android NDK C++
 runtime, and the 120-entry `assetfile.txt` manifest. It deliberately does not
 contain `libGame.so` or proprietary game assets; those are added from the
-matching official Android package during installation.
+matching official Android package during installation. The default package also
+includes the existing `Adjustable.cfg` console-style HUD layout. Set
+`GTASA_CONSOLE_UI=0` when invoking the packager to omit it.
 
 ### Original Switch installation (upstream reference only)
 

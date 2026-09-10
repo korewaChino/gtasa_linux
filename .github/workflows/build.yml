@@ -102,6 +102,7 @@ jobs:
           INPUT_VERSION: ${{ inputs.version }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
           GTASA_BINARY: ${{ github.workspace }}/build-linux/gtasa_linux
+          GTASA_CONSOLE_UI: "1"
         run: |
           cp -L /usr/local/lib/libSDL3.so.0 libSDL3.so.0
           VERSION="${INPUT_VERSION:-$RELEASE_TAG}"

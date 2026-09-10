@@ -81,6 +81,7 @@ gtasa/
 ├── libGame.so
 ├── libc++_shared.so             # vendored Android NDK runtime
 ├── assetfile.txt                # vendored 120-entry package manifest
+├── Adjustable.cfg               # console-style HUD layout
 ├── libSDL3.so.0                 # bundled Linux SDL3 build
 ├── data/                         # extracted Android assets
 ├── models/
@@ -159,6 +160,7 @@ mkdir -p "$STAGE/assets" "$GAME"
 unzip -q "$APK" 'assets/*' -d "$STAGE"
 cp -a "$STAGE/assets/." "$GAME/"
 install -m 0644 /path/to/gtasa_linux/assetfile.txt "$GAME/assetfile.txt"
+install -m 0644 /path/to/gtasa_linux/Adjustable.cfg "$GAME/Adjustable.cfg"
 
 # Extract only the matching ARM64 game library from the APK.
 unzip -p "$APK" 'lib/arm64-v8a/libGame.so' > "$GAME/libGame.so"
