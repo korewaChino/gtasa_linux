@@ -1,82 +1,138 @@
-name: Build GTA SA release
+name: Build GTA SA Linux release
 
 on:
   workflow_dispatch:
     inputs:
-      mesa_sdk_url:
-        description: 'URL of the Mesa 26.2 unified Horizon SDK zip.'
-        required: true
-        type: string
       version:
-        description: 'Release version. Leave it empty to avoid publishing a release.'
+        description: 'Release version. Leave empty for a snapshot artifact only.'
         required: false
         type: string
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     container:
-      image: devkitpro/devkita64:latest
+      image: debian:bookworm
       options: --user root
+    permissions:
+      contents: read
+    env:
+      SDL_COMMIT: 402fc52af4e731184ad6a704068b5ccd27d8f1b8
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install required Switch libraries
+      - name: Install Linux build dependencies
         run: |
-          dkp-pacman -S --noconfirm --needed \
-            switch-sdl2 \
-            switch-mpg123 \
-            switch-ffmpeg \
-            switch-openal-soft \
-            switch-libexpat \
-            switch-libzstd \
-            switch-zlib
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential \
+            ca-certificates \
+            cmake \
+            file \
+            git \
+            libasound2-dev \
+            libdrm-dev \
+            libegl1-mesa-dev \
+            libgbm-dev \
+            libgles2-mesa-dev \
+            libmpg123-dev \
+            libopenal-dev \
+            libpipewire-0.3-dev \
+            libpulse-dev \
+            libudev-dev \
+            libwayland-dev \
+            libx11-dev \
+            libxcursor-dev \
+            libxext-dev \
+            libxfixes-dev \
+            libxi-dev \
+            libxinerama-dev \
+            libxrandr-dev \
+            libxss-dev \
+            ninja-build \
+            pkg-config \
+            wayland-protocols
 
-      - name: Stage unified Mesa SDK
-        env:
-          MESA_SDK_URL: ${{ inputs.mesa_sdk_url }}
-          MESA_SDK_SHA256: 29AB2E0DED0CF7C74014D9C0FDBF1A27B6682FFD0E9ECCC1A1688F8F17F09411
+      - name: Build SDL3
         run: |
-          curl --fail --location --retry 3 "$MESA_SDK_URL" --output /tmp/mesa-sdk.zip
-          echo "$MESA_SDK_SHA256 */tmp/mesa-sdk.zip" | sha256sum --check --strict
-          mkdir -p mesa-install
-          python3 -m zipfile -e /tmp/mesa-sdk.zip mesa-install
-          test -f mesa-install/opt/devkitpro/portlibs/switch/lib/libEGL.a
-          test -f mesa-install/opt/devkitpro/portlibs/switch/lib/libGLESv2.a
+          git clone --depth 1 --branch release-3.2.x https://github.com/libsdl-org/SDL.git /tmp/SDL
+          test "$(git -C /tmp/SDL rev-parse HEAD)" = "$SDL_COMMIT"
+          cmake -S /tmp/SDL -B /tmp/SDL-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=/usr/local \
+            -DSDL_SHARED=ON \
+            -DSDL_STATIC=OFF \
+            -DSDL_ALSA=ON \
+            -DSDL_ALSA_SHARED=ON \
+            -DSDL_KMSDRM=ON \
+            -DSDL_KMSDRM_SHARED=ON \
+            -DSDL_PIPEWIRE=ON \
+            -DSDL_PIPEWIRE_SHARED=ON \
+            -DSDL_PULSEAUDIO=ON \
+            -DSDL_PULSEAUDIO_SHARED=ON \
+            -DSDL_WAYLAND=ON \
+            -DSDL_WAYLAND_SHARED=ON \
+            -DSDL_X11=ON \
+            -DSDL_X11_SHARED=ON
+          cmake --build /tmp/SDL-build --parallel 2
+          cmake --install /tmp/SDL-build
+          ldconfig
+          PKG_CONFIG_PATH=/usr/local/lib/pkgconfig pkg-config --modversion sdl3
+          test -f /usr/local/lib/libSDL3.so.0
 
-      - name: Build
-        run: make
+      - name: Build and test Linux port
         env:
-          DEVKITPRO: /opt/devkitpro
-          DEVKITA64: /opt/devkitpro/devkitA64
+          PKG_CONFIG_PATH: /usr/local/lib/pkgconfig
+        run: |
+          cmake -S . -B build-linux -G Ninja \
+            -DBUILD_TESTING=ON \
+            -DGTASA_DEBUG_LOG=OFF \
+            -DGTASA_QUIT_CHORD=ON
+          cmake --build build-linux --parallel 2
+          ctest --test-dir build-linux --output-on-failure
 
-      - name: Upload artifact
+      - name: Stage release runtime
+        run: |
+          cp -L /usr/local/lib/libSDL3.so.0 libSDL3.so.0
+          VERSION="${{ inputs.version }}"
+          if [ -z "$VERSION" ]; then
+            VERSION="snapshot-${GITHUB_SHA:0:12}"
+          fi
+          scripts/package-linux.sh "$VERSION" dist
+
+      - name: Upload Linux package
         uses: actions/upload-artifact@v4
         with:
-          name: gtasa_nx
-          path: gtasa_nx.nro
+          name: gtasa-linux-package
+          path: |
+            dist/*.tar.gz
+            dist/*.sha256
           if-no-files-found: error
 
   release:
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     if: github.event_name == 'workflow_dispatch' && inputs.version != ''
     permissions:
       contents: write
 
     steps:
-      - name: Download build artifact
+      - name: Download Linux package
         uses: actions/download-artifact@v4
         with:
-          name: gtasa_nx
+          name: gtasa-linux-package
+          path: dist
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: "v${{ inputs.version }}"
-          name: "gtasa_nx v${{ inputs.version }}"
-          files: gtasa_nx.nro
+          name: "GTA SA Linux v${{ inputs.version }}"
+          files: |
+            dist/*.tar.gz
+            dist/*.sha256
           draft: false
           prerelease: false
