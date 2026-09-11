@@ -1,4 +1,4 @@
-/* SDL3 input for the Android v2.11.264 native interface. */
+/* SDL3 input for the Android GTA:SA native gamepad interfaces. */
 #ifndef GTASA_INPUT_LINUX_H
 #define GTASA_INPUT_LINUX_H
 

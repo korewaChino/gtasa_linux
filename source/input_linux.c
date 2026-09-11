@@ -1,5 +1,6 @@
 /* Native gamepad input; no keyboard emulation.
- * IDs/axis order: v2.11.264 InputHandler.kt and GameNative JNI exports.
+ * IDs/axis order are shared by the v2.11.311 per-pad ABI and the older
+ * v2.11.264 count-based ABI.
  */
 #include "input_linux.h"
 #include "jni_fake.h"
@@ -20,7 +21,12 @@ typedef struct {
 static Gamepad pads[MAX_PADS];
 static int count;
 static bool initialized, focused, trace;
+enum InputAbi { INPUT_ABI_COUNT, INPUT_ABI_PER_PAD };
+static enum InputAbi input_abi;
 static void (*count_changed)(void *, void *, int);
+static void (*gamepad_connected)(void *, void *, int);
+static void (*gamepad_disconnected)(void *, void *, int);
+static void (*gamepad_resume)(void *, void *);
 static void (*button_down)(void *, void *, int, int);
 static void (*button_up)(void *, void *, int, int);
 static void (*axes_changed)(void *, void *, int, float, float, float, float, float, float);
@@ -89,20 +95,35 @@ static void open_pad(SDL_JoystickID id) {
   fprintf(stderr, "input: pad=%d id=%u name=%s\n", count, id, SDL_GetGamepadName(handle));
   char *mapping = SDL_GetGamepadMapping(handle);
   if (mapping) { fprintf(stderr, "input: mapping=%s\n", mapping); SDL_free(mapping); }
-  count_changed(fake_env, NULL, ++count);
-  reset_pad(count - 1);
+  const int slot = count++;
+  if (input_abi == INPUT_ABI_PER_PAD)
+    gamepad_connected(fake_env, NULL, slot);
+  else
+    count_changed(fake_env, NULL, count);
+  reset_pad(slot);
 }
 
 int linux_input_init(so_module *module) {
   if (initialized) linux_input_shutdown();
 #define RESOLVE(var, symbol) var = (void *)so_try_find_addr_rx(module, GN symbol)
   RESOLVE(count_changed, "implOnGamepadCountChanged");
+  RESOLVE(gamepad_connected, "implOnGamepadConnected");
+  RESOLVE(gamepad_disconnected, "implOnGamepadDisconnected");
+  RESOLVE(gamepad_resume, "implOnGamepadResume");
   RESOLVE(button_down, "implOnGamepadButtonDown");
   RESOLVE(button_up, "implOnGamepadButtonUp");
   RESOLVE(axes_changed, "implOnGamepadAxesChanged");
 #undef RESOLVE
-  if (!count_changed || !button_down || !button_up || !axes_changed) {
+  if (gamepad_connected && gamepad_disconnected) {
+    input_abi = INPUT_ABI_PER_PAD;
+  } else if (count_changed) {
+    input_abi = INPUT_ABI_COUNT;
+  } else {
     fprintf(stderr, "input: gamepad JNI interface missing; unsupported game build\n");
+    return -1;
+  }
+  if (!button_down || !button_up || !axes_changed) {
+    fprintf(stderr, "input: gamepad button/axis JNI interface missing; unsupported game build\n");
     return -1;
   }
   if (!(SDL_WasInit(SDL_INIT_GAMEPAD) & SDL_INIT_GAMEPAD)) return -1;
@@ -110,7 +131,8 @@ int linux_input_init(so_module *module) {
   focused = true;
   initialized = true;
   count = 0;
-  count_changed(fake_env, NULL, 0);
+  if (input_abi == INPUT_ABI_COUNT)
+    count_changed(fake_env, NULL, 0);
   int num = 0;
   SDL_JoystickID *ids = SDL_GetJoysticks(&num);
   for (int i = 0; i < num; i++) {
@@ -132,13 +154,25 @@ void linux_input_event(const SDL_Event *event) {
     case SDL_EVENT_GAMEPAD_REMOVED:
       for (int p = 0; p < count; p++) {
         if (pads[p].id != event->gdevice.which) continue;
-        /* Native count API represents contiguous slots. Release every shifted
-         * slot before compacting so unplug cannot transfer held buttons. */
+        /* Native slots are contiguous in both supported ABIs. Release every
+         * affected slot before compacting so unplug cannot transfer held
+         * buttons. The per-pad ABI reconnects shifted slots afterward. */
         for (int i = p; i < count; i++) reset_pad(i);
+        if (input_abi == INPUT_ABI_PER_PAD) {
+          for (int i = p; i < count; i++)
+            gamepad_disconnected(fake_env, NULL, i);
+        }
         SDL_CloseGamepad(pads[p].handle);
         memmove(&pads[p], &pads[p + 1], (count - p - 1) * sizeof(pads[0]));
         memset(&pads[--count], 0, sizeof(pads[0]));
-        count_changed(fake_env, NULL, count);
+        if (input_abi == INPUT_ABI_COUNT) {
+          count_changed(fake_env, NULL, count);
+        } else {
+          for (int i = p; i < count; i++) {
+            gamepad_connected(fake_env, NULL, i);
+            reset_pad(i);
+          }
+        }
         fprintf(stderr, "input: removed id=%u; %d gamepad(s)\n", event->gdevice.which, count);
         break;
       }
@@ -164,6 +198,8 @@ void linux_input_event(const SDL_Event *event) {
       break;
     case SDL_EVENT_WINDOW_FOCUS_GAINED:
       focused = true;
+      if (input_abi == INPUT_ABI_PER_PAD && gamepad_resume)
+        gamepad_resume(fake_env, NULL);
       break;
     default:
       break;
@@ -172,9 +208,11 @@ void linux_input_event(const SDL_Event *event) {
 
 void linux_input_update(void) {
   if (!initialized) return;
-  /* Some native startup stages reset input after Activity/Surface callbacks.
-   * Reasserting count is idempotent: JNI only emits connection transitions. */
-  count_changed(fake_env, NULL, count);
+  /* Some legacy startup stages reset input after Activity/Surface callbacks.
+   * The v2.11.264 count callback is idempotent; v2.11.311 uses explicit
+   * connected/disconnected callbacks instead. */
+  if (input_abi == INPUT_ABI_COUNT)
+    count_changed(fake_env, NULL, count);
   if (!focused) return;
   for (int p = 0; p < count; p++) {
     if (!SDL_GamepadConnected(pads[p].handle)) continue;
@@ -194,10 +232,13 @@ void linux_input_shutdown(void) {
   if (!initialized) return;
   for (int p = 0; p < count; p++) {
     reset_pad(p);
+    if (input_abi == INPUT_ABI_PER_PAD)
+      gamepad_disconnected(fake_env, NULL, p);
     SDL_CloseGamepad(pads[p].handle);
   }
   memset(pads, 0, sizeof(pads));
   count = 0;
-  count_changed(fake_env, NULL, 0);
+  if (input_abi == INPUT_ABI_COUNT)
+    count_changed(fake_env, NULL, 0);
   initialized = false;
 }

@@ -6,7 +6,8 @@
 
 void *fake_env;
 volatile int jni_quit_requested;
-static int native_count, down_calls, up_calls;
+static int native_count, down_calls, up_calls, resume_calls;
+static bool connected_slots[4];
 static bool held[4][14];
 static float axes[4][6];
 static bool missing;
@@ -15,6 +16,22 @@ static void set_count(void *env, void *obj, int n) {
   (void)env; (void)obj;
   assert(n >= 0 && n <= 4);
   native_count = n;
+}
+static void connected(void *env, void *obj, int p) {
+  (void)env; (void)obj;
+  assert(p >= 0 && p < 4 && !connected_slots[p]);
+  connected_slots[p] = true;
+  native_count++;
+}
+static void disconnected(void *env, void *obj, int p) {
+  (void)env; (void)obj;
+  assert(p >= 0 && p < 4 && connected_slots[p]);
+  connected_slots[p] = false;
+  native_count--;
+}
+static void resume(void *env, void *obj) {
+  (void)env; (void)obj;
+  resume_calls++;
 }
 static void down(void *env, void *obj, int p, int b) {
   (void)env; (void)obj;
@@ -40,6 +57,9 @@ static void axis(void *env, void *obj, int p, float lx, float ly,
 uintptr_t so_try_find_addr_rx(so_module *module, const char *name) {
   (void)module;
   if (missing) return 0;
+  if (strstr(name, "GamepadConnected")) return (uintptr_t)connected;
+  if (strstr(name, "GamepadDisconnected")) return (uintptr_t)disconnected;
+  if (strstr(name, "GamepadResume")) return (uintptr_t)resume;
   if (strstr(name, "CountChanged")) return (uintptr_t)set_count;
   if (strstr(name, "ButtonDown")) return (uintptr_t)down;
   if (strstr(name, "ButtonUp")) return (uintptr_t)up;
@@ -138,6 +158,7 @@ int main(void) {
   event.type = SDL_EVENT_WINDOW_FOCUS_GAINED;
   linux_input_event(&event); pump();
   assert(held[0][0] && axes[0][0] == -1);
+  assert(resume_calls == 1);
   SDL_JoystickID second = attach();
   SDL_Joystick *other = SDL_OpenJoystick(second);
   assert(other);
@@ -156,6 +177,6 @@ int main(void) {
   assert(linux_input_init(NULL) == -1);
   linux_input_shutdown();
   SDL_Quit();
-  puts("input regression: PASS (14 buttons, six axes, focus reset, startup/hotplug/compaction, missing ABI)");
+  puts("input regression: PASS (v2.11.311 per-pad ABI, 14 buttons, six axes, focus reset, startup/hotplug/compaction, missing ABI)");
   return 0;
 }

@@ -7,10 +7,13 @@
 
 This Linux/SDL3 port is based on the MIT-licensed
 [gtasa_nx](https://github.com/NaGaa95/gtasa_nx) Android ARM64 loader and shims.
-The Linux target is currently tested with **v2.11.264** `libGame.so`; upstream
-targets **v2.11.311**. It runs the user's Android library natively in a minimal
-compatibility environment. Version-specific Switch gameplay patches are not
-applied by the Linux target.
+The Linux target is being aligned with the official **v2.11.311** `libGame.so`
+(arm64-v8a), matching the upstream Android payload. It runs the user's Android
+library natively in a minimal compatibility environment. Version-specific Switch
+gameplay patches are not applied by the Linux target. The host input regression
+suite covers v2.11.311's per-gamepad callback ABI and retains a fallback for the
+older v2.11.264 count-based ABI; AArch64 v2.11.311 target validation still
+requires an ARM64 Play Store split.
 
 i made this because there's weird shady "PortMaster" archives going around [from the R36S wiki](https://r36swiki.com/wiki-gtasa.html),
 which seemed to have zero build provenance and i have zero clue how it's built, so I decided
@@ -19,11 +22,10 @@ to re-port it to a more generic target myself.
 And by the way, there is literally no release for this game on PortMaster, so the source of these ports going
 around is very shady
 
-### Generic Linux launcher
+### PortMaster launcher
 
-Build `gtasa_linux`, make `Grand Theft Auto San Andreas.sh` executable, and
-place the launcher in the ports directory with the executable and user's
-Android ARM64 files under `gtasa/`:
+The launcher follows the PortMaster layout and is intended to be started by
+PortMaster/EmulationStation:
 
 ```text
 ports/
@@ -33,27 +35,19 @@ ports/
     ├── libSDL3.so.0
     ├── libGame.so
     ├── libc++_shared.so
+    ├── assetfile.txt
+    ├── Adjustable.cfg
     ├── data/
     ├── models/
     ├── texdb/
     └── audio/
 ```
 
-The complete Android-package asset inventory, extraction commands, and runtime
-library distinctions are in [ASSET_PREPARATION.md](ASSET_PREPARATION.md). Use
-the matching ARM64 `libGame.so`, the port's vendored NDK `libc++_shared.so`,
-and preserve the Android package's asset paths and case.
-
-Launch with:
-
-```sh
-./Grand\ Theft\ Auto\ San\ Andreas.sh
-```
-
-The launcher supports `GTASA_GAME_DIR`, `GTASA_BINARY`, `GTASA_LOG`, and
-`GTASA_NO_LOG=1`. SDL3 selects the active Linux video/audio backend normally;
-`SDL_VIDEODRIVER`, `SDL_AUDIO_DRIVER`, and controller mapping variables may be
-overridden in the environment.
+The launcher sources PortMaster's `control.txt`, imports its controller
+mapping, requires an AArch64 device, runs `pm_platform_helper`, and finishes
+through `pm_finish`. It writes `gtasa/log.txt` for frontend launches. The
+complete Android-package asset inventory and split/asset-pack extraction guide
+is in [ASSET_PREPARATION.md](ASSET_PREPARATION.md).
 
 ### Linux input and audio
 

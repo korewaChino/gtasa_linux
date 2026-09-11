@@ -2,8 +2,9 @@
  *
  * Derived from the MIT-licensed gtasa_nx thread/platform hooks (game.c).
  * Do NOT apply that file's instruction-offset gameplay patches here: those
- * offsets target a different game build. In 2.11.264, BuildPixelSource+0x244
- * is strcat, not the specular-lighting instruction; patching it corrupts GLSL.
+ * offsets target a different game build. The known v2.11.264 BuildPixelSource
+ * offset is strcat, not the specular-lighting instruction; patching it corrupts
+ * GLSL. The Linux path uses symbol-only platform hooks for v2.11.311 instead.
  */
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
@@ -74,7 +75,8 @@ static int screen_get_height(void) { return screen_height; }
 
 void patch_game(void) {
   /* Whole-function replacements only, no displaced-instruction trampolines.
-   * All four entry signatures have been verified in the ARM64 2.11.264 ELF. */
+   * These platform entry signatures are present in the target v2.11.311
+   * Android library; no version-sensitive gameplay offsets are applied. */
   const DynLibFunction hooks[] = {
     {"_Z22NVThreadSpawnJNIThreadPlPK14pthread_attr_tPKcPFPvS5_ES5_",
      (uintptr_t)spawn_jni_thread},
@@ -88,5 +90,5 @@ void patch_game(void) {
   uintptr_t cloud_saves = so_try_find_addr_rx(&game_mod, "UseCloudSaves");
   if (cloud_saves)
     *(uint8_t *)cloud_saves = 0;
-  debugPrintf("hooks: Linux platform only; unvalidated gameplay offsets disabled\n");
+  debugPrintf("hooks: Linux platform only; version-sensitive gameplay offsets disabled\n");
 }
