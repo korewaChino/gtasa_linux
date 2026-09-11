@@ -32,7 +32,8 @@ ports/
 ├── Grand Theft Auto San Andreas.sh
 └── gtasa/
     ├── gtasa_linux
-    ├── libSDL3.so.0
+    ├── libs.aarch64/
+    │   └── libSDL3.so.0
     ├── libGame.so
     ├── libc++_shared.so
     ├── assetfile.txt
@@ -48,6 +49,12 @@ mapping, requires an AArch64 device, runs `pm_platform_helper`, and finishes
 through `pm_finish`. It writes `gtasa/log.txt` for frontend launches. The
 complete Android-package asset inventory and split/asset-pack extraction guide
 is in [ASSET_PREPARATION.md](ASSET_PREPARATION.md).
+
+`libs.aarch64/libSDL3.so.0` is built from the SDL3-to-SDL2 backend fork. It
+loads the device's system `libSDL2-2.0.so.0` dynamically so PortMaster systems
+retain their patched SDL2 video, audio, and joystick backends. SDL2 is not
+bundled. The reproducible workflow uses the PortMaster AArch64 builder image;
+the GitHub Actions workflow builds this shim rather than native SDL3.
 
 ### Linux input and audio
 
@@ -105,7 +112,7 @@ scripts/package-linux.sh 1.0.0
 ```
 
 This writes `dist/gtasa-linux-1.0.0.tar.gz` and a `.sha256` sidecar. The archive
-contains the launcher, `gtasa_linux`, Linux SDL3, the vendored Android NDK C++
+contains the launcher, `gtasa_linux`, `libs.aarch64/libSDL3.so.0`, the vendored Android NDK C++
 runtime, and the 120-entry `assetfile.txt` manifest. It deliberately does not
 contain `libGame.so` or proprietary game assets; those are added from the
 matching official Android package during installation. The default package also

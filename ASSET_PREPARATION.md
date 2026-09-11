@@ -68,7 +68,8 @@ The finished port directory structure should be something like this:
 ├── Grand Theft Auto San Andreas.sh       # PortMaster launcher
 └── gtasa/
     ├── gtasa_linux                        # port-owned AArch64 executable
-    ├── libSDL3.so.0                       # port-owned
+    ├── libs.aarch64/
+    │   └── libSDL3.so.0                   # SDL3-to-system-SDL2 shim
     ├── libGame.so                         # from split_config.arm64_v8a.apk
     ├── libc++_shared.so                   # matching ARM64 NDK runtime
     ├── assetfile.txt

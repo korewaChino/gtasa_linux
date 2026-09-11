@@ -5,7 +5,7 @@
 - Generic Linux is primary. `Makefile` / `source/main.c` retain Switch reference
   code; the Linux CMake target uses separate platform modules.
 - Public source foundation: MIT `NaGaa95/gtasa_nx`. The current tested Android
-  payload is arm64-v8a `libGame.so` v2.11.264, not upstream's v2.11.311.
+  payload is arm64-v8a `libGame.so` v2.11.311.
 - Game assets/APKs/OBBs are user-supplied and must not be added to Git. The
   Android NDK `libc++_shared.so` runtime is the port's tracked vendored runtime.
   No commits/pushes without permission; preserve this dirty tree.
@@ -36,10 +36,10 @@ find roots `/usr/aarch64-linux-gnu;/opt/target-aarch64`.
 Enable `-DGTASA_DEBUG_LOG=ON` only for a diagnostic build; normal handheld
 builds must leave it off so EGL compatibility traces do not reach the log.
 
-SDL is a dynamic build with KMSDRM/GLES and audio backends PipeWire, PulseAudio,
-ALSA (dynamic backend libraries). Debian arm64 development packages:
+The PortMaster runtime is an SDL3-to-system-SDL2 shim with GLES/GPU support;
+the shim dynamically loads each target's patched SDL2. Debian arm64 development packages:
 `libpipewire-0.3-dev:arm64 libpulse-dev:arm64 libasound2-dev:arm64`.
-The old SDL cache had every useful audio backend disabled! Explicitly configure
+For the old native SDL3 build, the old SDL cache had every useful audio backend disabled! Explicitly configure
 `SDL_PIPEWIRE=ON`, `SDL_PIPEWIRE_SHARED=ON`, `SDL_PULSEAUDIO=ON`,
 `SDL_PULSEAUDIO_SHARED=ON`, `SDL_ALSA=ON`, `SDL_ALSA_SHARED=ON`.
 Its strict find-root cache needed `ALSA_INCLUDE_DIR=/usr/include` and
@@ -74,8 +74,8 @@ Use `.new` + rename, not overwriting an actively mapped executable/library.
 
 - SDL input is **gamepad only**, no keyboard emulation/fallback. Use SDL mappings,
   including PortMaster's `SDL_GAMECONTROLLERCONFIG`, not custom evdev IDs.
-- v2.11.264 uses `implOnGamepadCountChanged`, not `implOnGamepadConnected`.
-  Button JNI IDs 0..13: South/East/West/North/Start/Back/L1/R1/Up/Down/Left/Right/L3/R3.
+- v2.11.311 uses `implOnGamepadConnected`, `implOnGamepadDisconnected`, and
+  `implOnGamepadResume`. Button JNI IDs 0..13: South/East/West/North/Start/Back/L1/R1/Up/Down/Left/Right/L3/R3.
   Axis order lx/ly/rx/ry/lt/rt; triggers 0..1, sticks -1..1 (SDL Y unchanged).
 - `implOnBackButtonPressed` is a native no-op in this APK. Do not pretend that
   calling it implements pause. Current Start/Back are native gamepad buttons;

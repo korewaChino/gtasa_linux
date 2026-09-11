@@ -7,11 +7,12 @@ ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)"
 VERSION="${1:-}"
 OUTPUT_DIR="${2:-$ROOT_DIR/dist}"
 BINARY="${GTASA_BINARY:-$ROOT_DIR/build-aarch64/gtasa_linux}"
+SDL3_RUNTIME="${GTASA_SDL3_RUNTIME:-$ROOT_DIR/libSDL3.so.0}"
 CONSOLE_UI="${GTASA_CONSOLE_UI:-1}"
 
 usage() {
     printf 'usage: %s VERSION [OUTPUT_DIR]\n' "$(basename "$0")" >&2
-    printf '       GTASA_BINARY=/path/to/gtasa_linux %s VERSION\n' "$(basename "$0")" >&2
+    printf '       GTASA_BINARY=/path/to/gtasa_linux GTASA_SDL3_RUNTIME=/path/to/libSDL3.so.0 %s VERSION\n' "$(basename "$0")" >&2
     printf '       GTASA_CONSOLE_UI=0 %s VERSION  # omit Adjustable.cfg\n' "$(basename "$0")" >&2
 }
 
@@ -28,7 +29,7 @@ fi
 required_files=(
     "$BINARY"
     "$ROOT_DIR/Grand Theft Auto San Andreas.sh"
-    "$ROOT_DIR/libSDL3.so.0"
+    "$SDL3_RUNTIME"
     "$ROOT_DIR/libc++_shared.so"
     "$ROOT_DIR/assetfile.txt"
 )
@@ -68,12 +69,12 @@ trap 'rm -rf "$STAGE"' EXIT
 PACKAGE_NAME="gtasa-linux-$VERSION"
 PACKAGE_DIR="$STAGE/$PACKAGE_NAME"
 GAME_DIR="$PACKAGE_DIR/gtasa"
-mkdir -p "$GAME_DIR"
+mkdir -p "$GAME_DIR/libs.aarch64"
 
 install -m 0755 "$ROOT_DIR/Grand Theft Auto San Andreas.sh" \
     "$PACKAGE_DIR/Grand Theft Auto San Andreas.sh"
 install -m 0755 "$BINARY" "$GAME_DIR/gtasa_linux"
-install -m 0644 "$ROOT_DIR/libSDL3.so.0" "$GAME_DIR/libSDL3.so.0"
+install -m 0644 "$SDL3_RUNTIME" "$GAME_DIR/libs.aarch64/libSDL3.so.0"
 install -m 0644 "$ROOT_DIR/libc++_shared.so" "$GAME_DIR/libc++_shared.so"
 install -m 0644 "$ROOT_DIR/assetfile.txt" "$GAME_DIR/assetfile.txt"
 if [[ "$CONSOLE_UI" == 1 ]]; then
@@ -92,7 +93,8 @@ expected=(
     "$PACKAGE_NAME/Grand Theft Auto San Andreas.sh"
     "$PACKAGE_NAME/gtasa/assetfile.txt"
     "$PACKAGE_NAME/gtasa/gtasa_linux"
-    "$PACKAGE_NAME/gtasa/libSDL3.so.0"
+    "$PACKAGE_NAME/gtasa/libs.aarch64/"
+    "$PACKAGE_NAME/gtasa/libs.aarch64/libSDL3.so.0"
     "$PACKAGE_NAME/gtasa/libc++_shared.so"
 )
 if [[ "$CONSOLE_UI" == 1 ]]; then
