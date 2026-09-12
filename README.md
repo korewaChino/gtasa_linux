@@ -119,6 +119,32 @@ matching official Android package during installation. The default package also
 includes the existing `Adjustable.cfg` console-style HUD layout. Set
 `GTASA_CONSOLE_UI=0` when invoking the packager to omit it.
 
+### Persistent PortMaster AArch64 build
+
+Use the PortMaster builder image through the persistent Containerfile rather than
+recreating a container or placing the SDL sources and build trees in `/tmp`:
+
+```sh
+podman build --arch arm64 --target artifact --build-arg GAME=gtasa -t gtasa-portmaster-artifact:gtasa -f Containerfile .
+podman build --arch arm64 --target artifact \
+  --build-arg GAME=gtavc \
+  --build-arg 'LAUNCHER_SCRIPT=Grand Theft Auto Vice City.sh' \
+  --build-arg BINARY_NAME=gtavc_linux \
+  --build-arg 'GAME_TITLE=Grand Theft Auto: Vice City' \
+  --build-arg CONFIG_NAME=gtavc.cfg \
+  --build-arg APPSTATE_NAME=gtavc-appstate.txt \
+  -t gtasa-portmaster-artifact:gtavc -f Containerfile .
+```
+
+The Containerfile uses the PortMaster AArch64 builder as its base, builds the
+SDL3-to-SDL2 shim and game in a multi-stage builder, and emits only the flat
+PortMaster tree from its final `scratch` stage. Build directories
+are `build-aarch64-portmaster/` and `build-gtavc-portmaster/` inside the builder
+filesystem, while `.portmaster-build/` persists the pinned SDL source trees
+and shim build cache when the builder workspace is reused. The `GAME=gtavc`
+build argument configures the Vice City product name and `gtavc.cfg` state
+filename; `GAME=gtasa` uses the San Andreas defaults.
+
 ### Original Switch installation (upstream reference only)
 
 You're going to need:

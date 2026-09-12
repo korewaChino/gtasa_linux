@@ -11,8 +11,8 @@
 
 // MB reserved for the .so load region: it only holds the RW staging copies of
 // the mapped libraries, and the rest of RAM goes to the newlib heap (game malloc
-// + mesa GPU buffers). Keep this region small so the game has room for
-// texture streaming.
+// + mesa GPU bos). Sizing this larger starves the GPU and OOMs SA's texture
+// streaming, so keep it small.
 #define MEMORY_SO_MB 64
 
 // The Android NDK C++ runtime is vendored with the Linux port. The loader
