@@ -1,124 +1,56 @@
-name: Build GTA SA Linux release
+name: Build PortMaster artifact
 
 on:
   push:
+  workflow_dispatch:
   release:
     types: [published]
-  workflow_dispatch:
-    inputs:
-      version:
-        description: 'Release version. Leave empty for a snapshot artifact only.'
-        required: false
-        type: string
+
+permissions:
+  contents: read
+  packages: write
 
 jobs:
   build:
     runs-on: ubuntu-24.04-arm
-    container:
-      image: ghcr.io/monkeyx-net/portmaster-build-templates/portmaster-builder:aarch64-latest
-      options: --user root
-    permissions:
-      contents: read
     env:
-      SDL_COMMIT: 6057d79baf8321bf190479a699655f06cc2a962f
-      SPIRV_CROSS_COMMIT: be71ee8c12cd7dc5ca8fa9581f708c2e8561fe2a
+      GAME: "${{ github.ref_name == 'miami' && 'gtavc' || 'gtasa' }}"
+      LAUNCHER_SCRIPT: "${{ github.ref_name == 'miami' && 'Grand Theft Auto Vice City.sh' || 'Grand Theft Auto San Andreas.sh' }}"
+      BINARY_NAME: "${{ github.ref_name == 'miami' && 'gtavc_linux' || 'gtasa_linux' }}"
+      GAME_TITLE: "${{ github.ref_name == 'miami' && 'Grand Theft Auto: Vice City' || 'Grand Theft Auto: San Andreas' }}"
+      CONFIG_NAME: "${{ github.ref_name == 'miami' && 'gtavc.cfg' || 'gtasa_nx.cfg' }}"
+      APPSTATE_NAME: "${{ github.ref_name == 'miami' && 'gtavc-appstate.txt' || 'appstate.txt' }}"
+      IMAGE: ghcr.io/${{ github.repository_owner }}/gtasa-portmaster
 
     steps:
-      - name: Checkout repository
+      - name: Check out source
         uses: actions/checkout@v4
 
-      - name: Verify PortMaster build environment
-        run: |
-          cmake --version
-          ninja --version
-          git --version
-          pkg-config --modversion sdl2
-          apt-get update
-          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends libmpg123-dev
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-      - name: Build SDL3-to-SDL2 shim
-        run: |
-          git clone --depth 1 --branch sdl2-backend https://github.com/bmdhacks/SDL.git /tmp/SDL
-          test "$(git -C /tmp/SDL rev-parse HEAD)" = "$SDL_COMMIT"
-          git clone --filter=blob:none https://github.com/KhronosGroup/SPIRV-Cross.git /tmp/SPIRV-Cross
-          git -C /tmp/SPIRV-Cross checkout --detach "$SPIRV_CROSS_COMMIT"
-          test "$(git -C /tmp/SPIRV-Cross rev-parse HEAD)" = "$SPIRV_CROSS_COMMIT"
-          cmake -S /tmp/SDL -B /tmp/SDL-build -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_INSTALL_PREFIX=/usr/local \
-            -DSDL_SDL2_BACKEND=ON \
-            -DSDL_SPIRV_CROSS_DIR=/tmp/SPIRV-Cross \
-            -DSDL_UNIX_CONSOLE_BUILD=ON \
-            -DSDL_SHARED=ON \
-            -DSDL_STATIC=OFF \
-            -DSDL_TESTS=OFF \
-            -DSDL_X11=OFF -DSDL_WAYLAND=OFF -DSDL_KMSDRM=OFF \
-            -DSDL_PIPEWIRE=OFF -DSDL_PULSEAUDIO=OFF -DSDL_ALSA=OFF \
-            -DSDL_SNDIO=OFF -DSDL_OSS=OFF -DSDL_JACK=OFF \
-            -DSDL_OFFSCREEN=OFF -DSDL_DUMMYVIDEO=OFF -DSDL_DUMMYAUDIO=OFF \
-            -DSDL_DISKAUDIO=OFF -DSDL_VULKAN=OFF
-          cmake --build /tmp/SDL-build --parallel 2
-          cmake --install /tmp/SDL-build
-          ldconfig
-          PKG_CONFIG_PATH=/usr/local/lib/pkgconfig pkg-config --modversion sdl3
-          test -f /usr/local/lib/libSDL3.so.0
-
-      - name: Build and test Linux port
-        env:
-          PKG_CONFIG_PATH: /usr/local/lib/pkgconfig
-        run: |
-          cmake -S . -B build-linux -G Ninja \
-            -DBUILD_TESTING=ON \
-            -DGTASA_DEBUG_LOG=OFF \
-            -DGTASA_QUIT_CHORD=ON \
-            -DGTASA_SDL2_SHIM=ON
-          cmake --build build-linux --parallel 2
-          ctest --test-dir build-linux --output-on-failure
-
-      - name: Stage release runtime
-        env:
-          INPUT_VERSION: ${{ inputs.version }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
-          GTASA_BINARY: ${{ github.workspace }}/build-linux/gtasa_linux
-          GTASA_CONSOLE_UI: "1"
-        run: |
-          cp -L /usr/local/lib/libSDL3.so.0 libSDL3.so.0
-          VERSION="${INPUT_VERSION:-$RELEASE_TAG}"
-          if [ -z "$VERSION" ]; then
-            VERSION="snapshot-$(printf '%s' "$GITHUB_SHA" | cut -c 1-12)"
-          fi
-          scripts/package-linux.sh "$VERSION" dist
-
-      - name: Upload Linux package
-        uses: actions/upload-artifact@v4
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
         with:
-          name: gtasa-linux-package
-          path: |
-            dist/*.tar.gz
-            dist/*.sha256
-          if-no-files-found: error
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-  release:
-    needs: build
-    runs-on: ubuntu-24.04-arm
-    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.version != '')
-    permissions:
-      contents: write
-
-    steps:
-      - name: Download Linux package
-        uses: actions/download-artifact@v4
+      - name: Build and push flat PortMaster OCI artifact
+        uses: docker/build-push-action@v6
         with:
-          name: gtasa-linux-package
-          path: dist
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: "${{ github.event_name == 'release' && github.event.release.tag_name || format('v{0}', inputs.version) }}"
-          name: "GTA SA Linux ${{ github.event_name == 'release' && github.event.release.tag_name || format('v{0}', inputs.version) }}"
-          files: |
-            dist/*.tar.gz
-            dist/*.sha256
-          draft: false
-          prerelease: false
+          context: .
+          file: ./Containerfile
+          target: artifact
+          platforms: linux/arm64
+          push: true
+          tags: ${{ env.IMAGE }}:${{ env.GAME }}
+          build-args: |
+            GAME=${{ env.GAME }}
+            LAUNCHER_SCRIPT=${{ env.LAUNCHER_SCRIPT }}
+            BINARY_NAME=${{ env.BINARY_NAME }}
+            GAME_TITLE=${{ env.GAME_TITLE }}
+            CONFIG_NAME=${{ env.CONFIG_NAME }}
+            APPSTATE_NAME=${{ env.APPSTATE_NAME }}
+          cache-from: type=gha,scope=${{ env.GAME }}
+          cache-to: type=gha,mode=max,scope=${{ env.GAME }}
