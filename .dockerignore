@@ -1,0 +1,11 @@
+.git
+.git/**
+.gtasa-*-source/
+.gtavc-*-source/
+.portmaster-build/
+build*/
+dist/
+out/
+*.apk
+*.apks
+*.obb

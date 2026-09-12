@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(miami_linux C)
+project(gtasa_linux C)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -9,6 +9,7 @@ option(GTASA_SDL2_SHIM "Build against the SDL3-to-system-SDL2 runtime shim" OFF)
 set(GTASA_PRODUCT_NAME "Grand Theft Auto: San Andreas" CACHE STRING "Window and fatal-error product name")
 set(GTASA_CONFIG_NAME "gtasa_nx.cfg" CACHE STRING "Wrapper configuration filename")
 set(GTASA_APPSTATE_NAME "appstate.txt" CACHE STRING "Wrapper app-state filename")
+set(GAME_BINARY_NAME "gtasa_linux" CACHE STRING "Game executable target and output name")
 
 
 find_package(PkgConfig REQUIRED)
@@ -18,7 +19,7 @@ pkg_check_modules(GLES2 REQUIRED IMPORTED_TARGET glesv2)
 pkg_check_modules(OPENAL REQUIRED IMPORTED_TARGET openal)
 pkg_check_modules(MPG123 REQUIRED IMPORTED_TARGET libmpg123)
 
-add_executable(miami_linux
+add_executable(${GAME_BINARY_NAME}
     source/config.c
     source/error_linux.c
     source/imports.c
@@ -34,8 +35,8 @@ add_executable(miami_linux
 )
 
 
-target_include_directories(miami_linux PRIVATE source source/hooks)
-target_link_libraries(miami_linux PRIVATE
+target_include_directories(${GAME_BINARY_NAME} PRIVATE source source/hooks)
+target_link_libraries(${GAME_BINARY_NAME} PRIVATE
     PkgConfig::SDL3
     PkgConfig::EGL
     PkgConfig::GLES2
@@ -44,21 +45,21 @@ target_link_libraries(miami_linux PRIVATE
     m dl pthread
 )
 
-target_compile_definitions(miami_linux PRIVATE
+target_compile_definitions(${GAME_BINARY_NAME} PRIVATE
     _GNU_SOURCE
     GTASA_PRODUCT_NAME="${GTASA_PRODUCT_NAME}"
     GTASA_CONFIG_NAME="${GTASA_CONFIG_NAME}"
     GTASA_APPSTATE_NAME="${GTASA_APPSTATE_NAME}"
 )
 if(GTASA_DEBUG_LOG)
-    target_compile_definitions(miami_linux PRIVATE DEBUG_LOG=1)
+    target_compile_definitions(${GAME_BINARY_NAME} PRIVATE DEBUG_LOG=1)
 endif()
 if(GTASA_QUIT_CHORD)
-    target_compile_definitions(miami_linux PRIVATE GTASA_QUIT_CHORD=1)
+    target_compile_definitions(${GAME_BINARY_NAME} PRIVATE GTASA_QUIT_CHORD=1)
 endif()
-target_compile_options(miami_linux PRIVATE -Wall -Wextra -Wno-unused-parameter)
+target_compile_options(${GAME_BINARY_NAME} PRIVATE -Wall -Wextra -Wno-unused-parameter)
 
-install(TARGETS miami_linux RUNTIME DESTINATION bin)
+install(TARGETS ${GAME_BINARY_NAME} RUNTIME DESTINATION bin)
 
 include(CTest)
 if(BUILD_TESTING)
