@@ -39,9 +39,9 @@ if [ ! -f "$GAMEDIR/libGame.so" ]; then
     exit 1
 fi
 
-chmod +x "$GAMEDIR/miami_linux" 2>/dev/null || true
-pm_platform_helper "$GAMEDIR/miami_linux"
-"$GAMEDIR/miami_linux"
+chmod +x "$GAMEDIR/gtavc_linux" 2>/dev/null || true
+pm_platform_helper "$GAMEDIR/gtavc_linux"
+"$GAMEDIR/gtavc_linux"
 status=$?
 pm_finish
 exit "$status"
