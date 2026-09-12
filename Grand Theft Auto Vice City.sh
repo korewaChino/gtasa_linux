@@ -26,7 +26,7 @@ cd "$GAMEDIR" || exit 1
 export XDG_DATA_HOME="$CONFDIR"
 export SDL_GAMECONTROLLERCONFIG="${sdl_controllerconfig:-${SDL_GAMECONTROLLERCONFIG:-}}"
 
-sdl3_mode="${GTASA_SDL3:-auto}"
+sdl3_mode="${GTASA_SDL3:-bundled}"
 sdl3_system=0
 if [ "$sdl3_mode" != "bundled" ]; then
     if command -v ldconfig >/dev/null 2>&1 && ldconfig -p 2>/dev/null | grep -q 'libSDL3.so.0'; then
