@@ -44,8 +44,7 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository }}
           tags: |
-            type=raw,value=gtasa,enable=${{ env.GAME == 'gtasa' }}
-            type=raw,value=gtavc,enable=${{ env.GAME == 'gtavc' }}
+            type=raw,value=${{ env.GAME }}
 
       - name: Build and push flat PortMaster OCI artifact
         uses: docker/build-push-action@v6
