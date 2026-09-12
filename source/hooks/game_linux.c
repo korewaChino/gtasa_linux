@@ -23,6 +23,10 @@
 
 extern so_module game_mod;
 
+#ifndef GAME_UI_SCALE_PERCENT
+#define GAME_UI_SCALE_PERCENT 100
+#endif
+
 typedef struct {
   void *(*func)(void *);
   void *arg;
@@ -91,4 +95,16 @@ void patch_game(void) {
   if (cloud_saves)
     *(uint8_t *)cloud_saves = 0;
   debugPrintf("hooks: Linux platform only; version-sensitive gameplay offsets disabled\n");
+}
+
+void game_apply_ui_scale(void) {
+#if GAME_UI_SCALE_PERCENT != 100
+  /* Vice City's Touchscreen::Initialize stores its width scale at +656 in
+   * the global Touchscreen object. Apply the handheld multiplier after the
+   * Android lifecycle has initialized that object. */
+  uintptr_t touchscreen = so_find_addr(&game_mod, "GTouchscreen");
+  float scale = (float)GAME_UI_SCALE_PERCENT / 100.0f;
+  *(float *)(touchscreen + 656) *= scale;
+  debugPrintf("ui: applied touchscreen scale %.2f\n", scale);
+#endif
 }

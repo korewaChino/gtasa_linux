@@ -22,6 +22,7 @@ jobs:
       GAME_TITLE: "${{ github.ref_name == 'miami' && 'Grand Theft Auto: Vice City' || 'Grand Theft Auto: San Andreas' }}"
       CONFIG_NAME: "${{ github.ref_name == 'miami' && 'gtavc.cfg' || 'gtasa_nx.cfg' }}"
       APPSTATE_NAME: "${{ github.ref_name == 'miami' && 'gtavc-appstate.txt' || 'appstate.txt' }}"
+      UI_SCALE_PERCENT: "${{ github.ref_name == 'miami' && '125' || '100' }}"
 
 
     steps:
@@ -64,6 +65,7 @@ jobs:
             GAME_TITLE=${{ env.GAME_TITLE }}
             CONFIG_NAME=${{ env.CONFIG_NAME }}
             APPSTATE_NAME=${{ env.APPSTATE_NAME }}
+            UI_SCALE_PERCENT=${{ env.UI_SCALE_PERCENT }}
           cache-from: type=gha,scope=${{ env.GAME }}
           cache-to: type=gha,mode=max,scope=${{ env.GAME }}
 
