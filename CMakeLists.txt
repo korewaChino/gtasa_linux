@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(gtasa_linux C)
+project(miami_linux C)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -18,7 +18,7 @@ pkg_check_modules(GLES2 REQUIRED IMPORTED_TARGET glesv2)
 pkg_check_modules(OPENAL REQUIRED IMPORTED_TARGET openal)
 pkg_check_modules(MPG123 REQUIRED IMPORTED_TARGET libmpg123)
 
-add_executable(gtasa_linux
+add_executable(miami_linux
     source/config.c
     source/error_linux.c
     source/imports.c
@@ -34,8 +34,8 @@ add_executable(gtasa_linux
 )
 
 
-target_include_directories(gtasa_linux PRIVATE source source/hooks)
-target_link_libraries(gtasa_linux PRIVATE
+target_include_directories(miami_linux PRIVATE source source/hooks)
+target_link_libraries(miami_linux PRIVATE
     PkgConfig::SDL3
     PkgConfig::EGL
     PkgConfig::GLES2
@@ -44,21 +44,21 @@ target_link_libraries(gtasa_linux PRIVATE
     m dl pthread
 )
 
-target_compile_definitions(gtasa_linux PRIVATE
+target_compile_definitions(miami_linux PRIVATE
     _GNU_SOURCE
     GTASA_PRODUCT_NAME="${GTASA_PRODUCT_NAME}"
     GTASA_CONFIG_NAME="${GTASA_CONFIG_NAME}"
     GTASA_APPSTATE_NAME="${GTASA_APPSTATE_NAME}"
 )
 if(GTASA_DEBUG_LOG)
-    target_compile_definitions(gtasa_linux PRIVATE DEBUG_LOG=1)
+    target_compile_definitions(miami_linux PRIVATE DEBUG_LOG=1)
 endif()
 if(GTASA_QUIT_CHORD)
-    target_compile_definitions(gtasa_linux PRIVATE GTASA_QUIT_CHORD=1)
+    target_compile_definitions(miami_linux PRIVATE GTASA_QUIT_CHORD=1)
 endif()
-target_compile_options(gtasa_linux PRIVATE -Wall -Wextra -Wno-unused-parameter)
+target_compile_options(miami_linux PRIVATE -Wall -Wextra -Wno-unused-parameter)
 
-install(TARGETS gtasa_linux RUNTIME DESTINATION bin)
+install(TARGETS miami_linux RUNTIME DESTINATION bin)
 
 include(CTest)
 if(BUILD_TESTING)
