@@ -22,7 +22,7 @@ jobs:
       GAME_TITLE: "${{ github.ref_name == 'miami' && 'Grand Theft Auto: Vice City' || 'Grand Theft Auto: San Andreas' }}"
       CONFIG_NAME: "${{ github.ref_name == 'miami' && 'gtavc.cfg' || 'gtasa_nx.cfg' }}"
       APPSTATE_NAME: "${{ github.ref_name == 'miami' && 'gtavc-appstate.txt' || 'appstate.txt' }}"
-      IMAGE: ghcr.io/${{ github.repository_owner }}/gtasa-portmaster
+
 
     steps:
       - name: Check out source
@@ -38,6 +38,15 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Extract image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=raw,value=gtasa,enable=${{ env.GAME == 'gtasa' }}
+            type=raw,value=gtavc,enable=${{ env.GAME == 'gtavc' }}
+
       - name: Build and push flat PortMaster OCI artifact
         uses: docker/build-push-action@v6
         with:
@@ -45,7 +54,7 @@ jobs:
           file: ./Containerfile
           target: artifact
           platforms: linux/arm64
-          tags: ${{ env.IMAGE }}:${{ env.GAME }}
+          tags: ${{ steps.meta.outputs.tags }}
           outputs: |
             type=registry
             type=local,dest=artifact/${{ env.GAME }}
