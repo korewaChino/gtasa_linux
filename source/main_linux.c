@@ -256,7 +256,7 @@ int main(void) {
   debugPrintf("lifecycle: implOnResume\n");
   ((void (*)(void *, void *))implOnResume)(fake_env, gn);
   debugPrintf("lifecycle: implOnResume returned\n");
-  game_apply_ui_scale();
+
   if (linux_input_init(&game_mod) < 0)
     fatal_error("Could not initialize the native SDL gamepad interface");
 

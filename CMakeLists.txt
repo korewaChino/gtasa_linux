@@ -10,7 +10,7 @@ set(GTASA_PRODUCT_NAME "Grand Theft Auto: San Andreas" CACHE STRING "Window and 
 set(GTASA_CONFIG_NAME "gtasa_nx.cfg" CACHE STRING "Wrapper configuration filename")
 set(GTASA_APPSTATE_NAME "appstate.txt" CACHE STRING "Wrapper app-state filename")
 set(GAME_BINARY_NAME "gtasa_linux" CACHE STRING "Game executable target and output name")
-set(GAME_UI_SCALE_PERCENT "100" CACHE STRING "Game UI scale percentage")
+
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(SDL3 REQUIRED IMPORTED_TARGET sdl3)
@@ -49,7 +49,7 @@ target_compile_definitions(${GAME_BINARY_NAME} PRIVATE
     GTASA_PRODUCT_NAME="${GTASA_PRODUCT_NAME}"
     GTASA_CONFIG_NAME="${GTASA_CONFIG_NAME}"
     GTASA_APPSTATE_NAME="${GTASA_APPSTATE_NAME}"
-    GAME_UI_SCALE_PERCENT=${GAME_UI_SCALE_PERCENT}
+
 )
 if(GTASA_DEBUG_LOG)
     target_compile_definitions(${GAME_BINARY_NAME} PRIVATE DEBUG_LOG=1)
