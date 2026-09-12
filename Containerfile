@@ -17,7 +17,7 @@ ARG BINARY_NAME=gtasa_linux
 ARG GAME_TITLE="Grand Theft Auto: San Andreas"
 ARG CONFIG_NAME=gtasa_nx.cfg
 ARG APPSTATE_NAME=appstate.txt
-ARG UI_SCALE_PERCENT=100
+
 ARG SDL_COMMIT=6057d79baf8321bf190479a699655f06cc2a962f
 ARG SPIRV_CROSS_COMMIT=be71ee8c12cd7dc5ca8fa9581f708c2e8561fe2a
 
@@ -31,7 +31,7 @@ RUN chmod +x /workspace/scripts/portmaster-build.sh && \
     GAME_TITLE="$GAME_TITLE" \
     CONFIG_NAME="$CONFIG_NAME" \
     APPSTATE_NAME="$APPSTATE_NAME" \
-    UI_SCALE_PERCENT="$UI_SCALE_PERCENT" \
+
     /workspace/scripts/portmaster-build.sh build
 
 FROM scratch AS artifact

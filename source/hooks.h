@@ -2,7 +2,7 @@
 #define __HOOKS_H__
 
 void patch_game(void);
-void game_apply_ui_scale(void);
+
 void keep_game_frame_limiter_off(void);
 
 // Terminate the process, skipping the mobile engine's crashy teardown (see main.c).

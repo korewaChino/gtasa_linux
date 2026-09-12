@@ -9,7 +9,7 @@ BINARY_NAME="${BINARY_NAME:-${GAME}_linux}"
 GAME_TITLE="${GAME_TITLE:-$GAME}"
 CONFIG_NAME="${CONFIG_NAME:-${GAME}.cfg}"
 APPSTATE_NAME="${APPSTATE_NAME:-${GAME}-appstate.txt}"
-UI_SCALE_PERCENT="${UI_SCALE_PERCENT:-100}"
+
 BUILD_ROOT="${PORTMASTER_BUILD_ROOT:-/workspace/.portmaster-build}"
 OUT_ROOT="${PORTMASTER_OUT_ROOT:-/workspace/out}"
 PACKAGE_ROOT="${PORTMASTER_PACKAGE_ROOT:-/workspace/package}"
@@ -58,8 +58,7 @@ build_game() {
         -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON \
         -DGTASA_DEBUG_LOG=OFF -DGTASA_QUIT_CHORD=ON -DGTASA_SDL2_SHIM=ON \
         -DGTASA_PRODUCT_NAME="$GAME_TITLE" -DGTASA_CONFIG_NAME="$CONFIG_NAME" \
-        -DGTASA_APPSTATE_NAME="$APPSTATE_NAME" -DGAME_BINARY_NAME="$BINARY_NAME" \
-        -DGAME_UI_SCALE_PERCENT="$UI_SCALE_PERCENT"
+        -DGTASA_APPSTATE_NAME="$APPSTATE_NAME" -DGAME_BINARY_NAME="$BINARY_NAME"
     cmake --build "/workspace/$build_dir" --parallel "${JOBS:-2}"
     ctest --test-dir "/workspace/$build_dir" --output-on-failure
     local out="$OUT_ROOT/$GAME"
