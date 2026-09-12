@@ -9,19 +9,19 @@ on:
     types: [published]
 
 permissions:
-  contents: read
+  contents: write
   packages: write
 
 jobs:
   build:
     runs-on: ubuntu-24.04-arm
     env:
-      GAME: "${{ github.ref_name == 'miami' && 'gtavc' || 'gtasa' }}"
-      LAUNCHER_SCRIPT: "${{ github.ref_name == 'miami' && 'Grand Theft Auto Vice City.sh' || 'Grand Theft Auto San Andreas.sh' }}"
-      BINARY_NAME: "${{ github.ref_name == 'miami' && 'gtavc_linux' || 'gtasa_linux' }}"
-      GAME_TITLE: "${{ github.ref_name == 'miami' && 'Grand Theft Auto: Vice City' || 'Grand Theft Auto: San Andreas' }}"
-      CONFIG_NAME: "${{ github.ref_name == 'miami' && 'gtavc.cfg' || 'gtasa_nx.cfg' }}"
-      APPSTATE_NAME: "${{ github.ref_name == 'miami' && 'gtavc-appstate.txt' || 'appstate.txt' }}"
+      GAME: "${{ (github.ref_name == 'miami' || (github.event_name == 'release' && github.event.release.target_commitish == 'miami')) && 'gtavc' || 'gtasa' }}"
+      LAUNCHER_SCRIPT: "${{ (github.ref_name == 'miami' || (github.event_name == 'release' && github.event.release.target_commitish == 'miami')) && 'Grand Theft Auto Vice City.sh' || 'Grand Theft Auto San Andreas.sh' }}"
+      BINARY_NAME: "${{ (github.ref_name == 'miami' || (github.event_name == 'release' && github.event.release.target_commitish == 'miami')) && 'gtavc_linux' || 'gtasa_linux' }}"
+      GAME_TITLE: "${{ (github.ref_name == 'miami' || (github.event_name == 'release' && github.event.release.target_commitish == 'miami')) && 'Grand Theft Auto: Vice City' || 'Grand Theft Auto: San Andreas' }}"
+      CONFIG_NAME: "${{ (github.ref_name == 'miami' || (github.event_name == 'release' && github.event.release.target_commitish == 'miami')) && 'gtavc.cfg' || 'gtasa_nx.cfg' }}"
+      APPSTATE_NAME: "${{ (github.ref_name == 'miami' || (github.event_name == 'release' && github.event.release.target_commitish == 'miami')) && 'gtavc-appstate.txt' || 'appstate.txt' }}"
 
 
 
@@ -75,3 +75,19 @@ jobs:
           name: gtasa-portmaster-${{ env.GAME }}
           path: artifact/${{ env.GAME }}
           if-no-files-found: error
+
+      - name: Create and upload release tarball
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          mkdir -p release
+          archive="release/gtasa-portmaster-${GAME}-${GITHUB_REF_NAME}.tar.gz"
+          tar --sort=name --mtime='UTC 1970-01-01' \
+            --owner=0 --group=0 --numeric-owner \
+            -C "artifact/${GAME}" -czf "$archive" .
+          sha256sum "$archive" > "$archive.sha256"
+          tar -tzf "$archive" >/dev/null
+          gh release upload "${{ github.event.release.tag_name }}" \
+            "$archive" "$archive.sha256" --clobber
