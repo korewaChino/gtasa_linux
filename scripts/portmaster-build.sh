@@ -48,6 +48,15 @@ build_shim() {
     cmake --build "$BUILD_ROOT/SDL-build" --parallel "${JOBS:-2}"
     cmake --install "$BUILD_ROOT/SDL-build"
     test -f "$BUILD_ROOT/sysroot/lib/libSDL3.so.0"
+    if command -v readelf >/dev/null 2>&1 && command -v dpkg >/dev/null 2>&1; then
+        local max_glibc
+        max_glibc="$(readelf --version-info "$BUILD_ROOT/sysroot/lib/libSDL3.so.0" | grep -o 'GLIBC_[0-9.]*' | sort -Vu | tail -1 | sed 's/^GLIBC_//')"
+        if [ -n "$max_glibc" ] && dpkg --compare-versions "$max_glibc" gt 2.30; then
+            echo "libSDL3.so.0 requires GLIBC_$max_glibc; maximum supported is GLIBC_2.30" >&2
+            exit 1
+        fi
+        echo "libSDL3.so.0 maximum GLIBC requirement: ${max_glibc:-unknown}"
+    fi
 }
 
 build_game() {
@@ -67,6 +76,15 @@ build_game() {
     cp "/workspace/$build_dir/$BINARY_NAME" "$out/$BINARY_NAME"
     cp "$BUILD_ROOT/sysroot/lib/libSDL3.so.0" "$out/libs.aarch64/libSDL3.so.0"
     file "$out/$BINARY_NAME"
+    if command -v readelf >/dev/null 2>&1 && command -v dpkg >/dev/null 2>&1; then
+        local max_glibc
+        max_glibc="$(readelf --version-info "$out/$BINARY_NAME" | grep -o 'GLIBC_[0-9.]*' | sort -Vu | tail -1 | sed 's/^GLIBC_//')"
+        if [ -n "$max_glibc" ] && dpkg --compare-versions "$max_glibc" gt 2.30; then
+            echo "$BINARY_NAME requires GLIBC_$max_glibc; maximum supported is GLIBC_2.30" >&2
+            exit 1
+        fi
+        echo "$BINARY_NAME maximum GLIBC requirement: ${max_glibc:-unknown}"
+    fi
 }
 
 package_game() {
