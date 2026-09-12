@@ -5,6 +5,10 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 option(GTASA_DEBUG_LOG "Write the compatibility debug log" OFF)
 option(GTASA_QUIT_CHORD "Enable the Guide/Back + Start quit chord" ON)
+option(GTASA_SDL2_SHIM "Build against the SDL3-to-system-SDL2 runtime shim" OFF)
+set(GTASA_PRODUCT_NAME "Grand Theft Auto: San Andreas" CACHE STRING "Window and fatal-error product name")
+set(GTASA_CONFIG_NAME "gtasa_nx.cfg" CACHE STRING "Wrapper configuration filename")
+set(GTASA_APPSTATE_NAME "appstate.txt" CACHE STRING "Wrapper app-state filename")
 
 
 find_package(PkgConfig REQUIRED)
@@ -40,7 +44,12 @@ target_link_libraries(gtasa_linux PRIVATE
     m dl pthread
 )
 
-target_compile_definitions(gtasa_linux PRIVATE _GNU_SOURCE)
+target_compile_definitions(gtasa_linux PRIVATE
+    _GNU_SOURCE
+    GTASA_PRODUCT_NAME="${GTASA_PRODUCT_NAME}"
+    GTASA_CONFIG_NAME="${GTASA_CONFIG_NAME}"
+    GTASA_APPSTATE_NAME="${GTASA_APPSTATE_NAME}"
+)
 if(GTASA_DEBUG_LOG)
     target_compile_definitions(gtasa_linux PRIVATE DEBUG_LOG=1)
 endif()
@@ -62,10 +71,12 @@ if(BUILD_TESTING)
     target_compile_options(input_linux_test PRIVATE -Wall -Wextra -UNDEBUG)
     add_test(NAME input_linux COMMAND input_linux_test)
     set_tests_properties(input_linux PROPERTIES TIMEOUT 10)
-    add_executable(audio_linux_test tests/audio_linux_test.c source/audio_linux.c)
-    target_include_directories(audio_linux_test PRIVATE source)
-    target_link_libraries(audio_linux_test PRIVATE PkgConfig::SDL3 PkgConfig::OPENAL m pthread)
-    target_compile_options(audio_linux_test PRIVATE -Wall -Wextra -UNDEBUG)
-    add_test(NAME audio_linux COMMAND audio_linux_test)
-    set_tests_properties(audio_linux PROPERTIES ENVIRONMENT "SDL_AUDIO_DRIVER=dummy" TIMEOUT 10)
+    if(NOT GTASA_SDL2_SHIM)
+        add_executable(audio_linux_test tests/audio_linux_test.c source/audio_linux.c)
+        target_include_directories(audio_linux_test PRIVATE source)
+        target_link_libraries(audio_linux_test PRIVATE PkgConfig::SDL3 PkgConfig::OPENAL m pthread)
+        target_compile_options(audio_linux_test PRIVATE -Wall -Wextra -UNDEBUG)
+        add_test(NAME audio_linux COMMAND audio_linux_test)
+        set_tests_properties(audio_linux PROPERTIES ENVIRONMENT "SDL_AUDIO_DRIVER=dummy" TIMEOUT 10)
+    endif()
 endif()

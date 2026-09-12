@@ -5,9 +5,13 @@
 
 #include "error.h"
 
+#ifndef GTASA_PRODUCT_NAME
+#define GTASA_PRODUCT_NAME "Grand Theft Auto: San Andreas"
+#endif
+
 void fatal_error(const char *fmt, ...) {
   va_list ap;
-  fputs("gtasa_linux: fatal: ", stderr);
+  fprintf(stderr, "%s: fatal: ", GTASA_PRODUCT_NAME);
   va_start(ap, fmt);
   vfprintf(stderr, fmt, ap);
   va_end(ap);

@@ -33,6 +33,8 @@ jobs:
           ninja --version
           git --version
           pkg-config --modversion sdl2
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends libmpg123-dev
 
       - name: Build SDL3-to-SDL2 shim
         run: |
@@ -68,7 +70,8 @@ jobs:
           cmake -S . -B build-linux -G Ninja \
             -DBUILD_TESTING=ON \
             -DGTASA_DEBUG_LOG=OFF \
-            -DGTASA_QUIT_CHORD=ON
+            -DGTASA_QUIT_CHORD=ON \
+            -DGTASA_SDL2_SHIM=ON
           cmake --build build-linux --parallel 2
           ctest --test-dir build-linux --output-on-failure
 

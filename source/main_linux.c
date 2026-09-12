@@ -26,6 +26,10 @@
 #include "so_util.h"
 #include "util.h"
 
+#ifndef GTASA_PRODUCT_NAME
+#define GTASA_PRODUCT_NAME "Grand Theft Auto: San Andreas"
+#endif
+
 so_module donor_mod;
 so_module game_mod;
 
@@ -131,7 +135,7 @@ static int make_window(SDL_Window **window, SDL_GLContext *context) {
   SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
   SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
 
-  *window = SDL_CreateWindow("GTA: San Andreas", 1280, 720,
+  *window = SDL_CreateWindow(GTASA_PRODUCT_NAME, 1280, 720,
                              SDL_WINDOW_OPENGL | SDL_WINDOW_FULLSCREEN);
   if (!*window) {
     fatal_error("SDL_CreateWindow failed: %s", SDL_GetError());

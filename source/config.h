@@ -21,10 +21,16 @@
 #define CXX_DONOR_SO_NAME "libc++_shared.so"
 // the game ships its own binary "config.txt" at the data root, so the wrapper's
 // config uses a distinct name to avoid parsing that blob as text
-#define CONFIG_NAME "gtasa_nx.cfg"
+#ifndef GTASA_CONFIG_NAME
+#define GTASA_CONFIG_NAME "gtasa_nx.cfg"
+#endif
+#define CONFIG_NAME GTASA_CONFIG_NAME
 #define LOG_NAME "debug.log"
 // backing store for the engine's get/setAppLocalValue key/value pairs
-#define APPSTATE_NAME "appstate.txt"
+#ifndef GTASA_APPSTATE_NAME
+#define GTASA_APPSTATE_NAME "appstate.txt"
+#endif
+#define APPSTATE_NAME GTASA_APPSTATE_NAME
 
 // Define to write debug.log and nxlink stdout. Off for release (debugPrintf
 // becomes a no-op).
