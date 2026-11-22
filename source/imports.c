@@ -639,6 +639,57 @@ static int mpg123_param_fuzzy(mpg123_handle *mh, enum mpg123_parms type,
   return mpg123_param(mh, type, value, fvalue);
 }
 
+// Android's mpg123 treats the initial zero feedseek as a no-op; don't drop primed data here.
+#define FEED_FRESH_SLOTS 8
+static mpg123_handle *feed_fresh[FEED_FRESH_SLOTS];
+static unsigned feed_fresh_next;
+static pthread_mutex_t feed_fresh_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+static void feed_mark_fresh(mpg123_handle *mh) {
+  pthread_mutex_lock(&feed_fresh_mutex);
+  for (unsigned i = 0; i < FEED_FRESH_SLOTS; i++)
+    if (feed_fresh[i] == mh) feed_fresh[i] = NULL;
+  feed_fresh[feed_fresh_next++ % FEED_FRESH_SLOTS] = mh;
+  pthread_mutex_unlock(&feed_fresh_mutex);
+}
+
+static int feed_take_fresh(mpg123_handle *mh) {
+  int fresh = 0;
+  pthread_mutex_lock(&feed_fresh_mutex);
+  for (unsigned i = 0; i < FEED_FRESH_SLOTS; i++) {
+    if (feed_fresh[i] == mh) {
+      feed_fresh[i] = NULL;
+      fresh = 1;
+    }
+  }
+  pthread_mutex_unlock(&feed_fresh_mutex);
+  return fresh;
+}
+
+static void feed_forget(mpg123_handle *mh) {
+  pthread_mutex_lock(&feed_fresh_mutex);
+  for (unsigned i = 0; i < FEED_FRESH_SLOTS; i++)
+    if (feed_fresh[i] == mh) feed_fresh[i] = NULL;
+  pthread_mutex_unlock(&feed_fresh_mutex);
+}
+
+static int mpg123_open_feed_game(mpg123_handle *mh) {
+  int rc = mpg123_open_feed(mh);
+  if (rc == MPG123_OK) feed_mark_fresh(mh);
+  return rc;
+}
+
+static off_t mpg123_feedseek_game(mpg123_handle *mh, off_t sampleoff, int whence,
+                                  off_t *input_offset) {
+  if (sampleoff == 0 && whence == SEEK_SET && feed_take_fresh(mh)) return -1;
+  return mpg123_feedseek(mh, sampleoff, whence, input_offset);
+}
+
+static void mpg123_delete_game(mpg123_handle *mh) {
+  feed_forget(mh);
+  mpg123_delete(mh);
+}
+
 // import table
 
 DynLibFunction dynlib_functions[] = {
@@ -858,16 +909,16 @@ DynLibFunction dynlib_functions[] = {
 
   // mpg123 (music streaming); was libVendor_mpg123.so on Android,
   // provided natively by the switch-mpg123 portlib here
-  { "mpg123_delete", (uintptr_t)&mpg123_delete },
+  { "mpg123_delete", (uintptr_t)&mpg123_delete_game },
   { "mpg123_exit", (uintptr_t)&mpg123_exit },
   { "mpg123_feed", (uintptr_t)&mpg123_feed },
-  { "mpg123_feedseek", (uintptr_t)&mpg123_feedseek },
+  { "mpg123_feedseek", (uintptr_t)&mpg123_feedseek_game },
   { "mpg123_format_all", (uintptr_t)&mpg123_format_all },
   { "mpg123_getformat", (uintptr_t)&mpg123_getformat },
   { "mpg123_info", (uintptr_t)&mpg123_info },
   { "mpg123_init", (uintptr_t)&mpg123_init },
   { "mpg123_new", (uintptr_t)&mpg123_new },
-  { "mpg123_open_feed", (uintptr_t)&mpg123_open_feed },
+  { "mpg123_open_feed", (uintptr_t)&mpg123_open_feed_game },
   { "mpg123_outblock", (uintptr_t)&mpg123_outblock },
   { "mpg123_read", (uintptr_t)&mpg123_read },
 

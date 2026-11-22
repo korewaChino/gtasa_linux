@@ -270,6 +270,7 @@ int main(void) {
 
   uint64_t last = SDL_GetTicksNS();
   uint64_t last_audio_report = last;
+  const uint64_t frame_ns = 1000000000ULL / (config.fps_cap_30 ? 30 : 60);
   const int audio_debug = getenv("GTASA_AUDIO_DEBUG") != NULL;
   unsigned long frames = 0;
   const char *test_color = getenv("GTASA_TEST_COLOR");
@@ -287,7 +288,7 @@ int main(void) {
     }
     float dt = (float)(now - last) / 1000000000.0f;
     last = now;
-    if (dt <= 0.0f || dt > 0.5f)
+    if (dt < 1.0f / 120.0f || dt > 0.5f)
       dt = 1.0f / 60.0f;
 
     if ((frames % 60) == 0)
@@ -305,7 +306,8 @@ int main(void) {
     }
     if (test_color && strcmp(test_color, "red") == 0)
       SDL_GL_SwapWindow(window);
-    SDL_Delay(1);
+    uint64_t used = SDL_GetTicksNS() - now;
+    if (used < frame_ns) SDL_DelayNS(frame_ns - used);
   }
 
   hard_exit();
