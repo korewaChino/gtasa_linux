@@ -34,15 +34,38 @@
 #define DT_ANDROID_RELRSZ  0x6fffe001
 #define DT_ANDROID_RELRENT 0x6fffe003
 
+#if defined(__x86_64__)
+#define SO_R_ABS64     R_X86_64_64
+#define SO_R_RELATIVE  R_X86_64_RELATIVE
+#define SO_R_GLOB_DAT  R_X86_64_GLOB_DAT
+#define SO_R_JUMP_SLOT R_X86_64_JUMP_SLOT
+#elif defined(__aarch64__)
+#define SO_R_ABS64     R_AARCH64_ABS64
+#define SO_R_RELATIVE  R_AARCH64_RELATIVE
+#define SO_R_GLOB_DAT  R_AARCH64_GLOB_DAT
+#define SO_R_JUMP_SLOT R_AARCH64_JUMP_SLOT
+#else
+#error "so_util supports x86_64 and aarch64"
+#endif
+
 static so_module *so_list = NULL;
 
 void hook_arm64(uintptr_t addr, uintptr_t dst) {
   if (addr == 0)
     return;
+#if defined(__x86_64__)
+  uint8_t *hook = (uint8_t *)addr;
+  hook[0] = 0x48; // movabs rax, imm64
+  hook[1] = 0xb8;
+  *(uint64_t *)(hook + 2) = dst;
+  hook[10] = 0xff; // jmp rax
+  hook[11] = 0xe0;
+#else
   uint32_t *hook = (uint32_t *)addr;
   hook[0] = 0x58000051u; // LDR X17, #0x8
   hook[1] = 0xd61f0220u; // BR X17
   *(uint64_t *)(hook + 2) = dst;
+#endif
 }
 
 void so_flush_caches(so_module *mod) {
@@ -269,7 +292,7 @@ int so_relocate(so_module *mod) {
 
         int type = ELF64_R_TYPE(rels[j].r_info);
         switch (type) {
-          case R_AARCH64_ABS64:
+          case SO_R_ABS64:
             if (sym->st_shndx == SHN_UNDEF) {
               // imported ABS64 (e.g. RTTI type_info): resolve after all modules load
               *ptr = rels[j].r_addend;
@@ -279,12 +302,12 @@ int so_relocate(so_module *mod) {
             }
             break;
 
-          case R_AARCH64_RELATIVE:
+          case SO_R_RELATIVE:
             *ptr = (uintptr_t)mod->load_virtbase + rels[j].r_addend;
             break;
 
-          case R_AARCH64_GLOB_DAT:
-          case R_AARCH64_JUMP_SLOT:
+          case SO_R_GLOB_DAT:
+          case SO_R_JUMP_SLOT:
           {
             if (sym->st_shndx != SHN_UNDEF)
               *ptr = (uintptr_t)mod->load_virtbase + sym->st_value + rels[j].r_addend;
@@ -363,16 +386,16 @@ int so_resolve(so_module *mod, DynLibFunction *funcs, int num_funcs, int taint_m
 
         int type = ELF64_R_TYPE(rels[j].r_info);
         switch (type) {
-          case R_AARCH64_ABS64:
-          case R_AARCH64_GLOB_DAT:
-          case R_AARCH64_JUMP_SLOT:
+          case SO_R_ABS64:
+          case SO_R_GLOB_DAT:
+          case SO_R_JUMP_SLOT:
           {
             if (sym->st_shndx == SHN_UNDEF) {
               char *name = mod->dynstrtab + sym->st_name;
               uintptr_t addr = so_resolve_symbol(mod, funcs, num_funcs, name);
               if (addr) {
                 *ptr = addr + rels[j].r_addend;
-                if (type == R_AARCH64_ABS64)
+                if (type == SO_R_ABS64)
                   resolved_abs64++;
               } else {
                 missing++;
