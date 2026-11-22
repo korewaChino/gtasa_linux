@@ -55,7 +55,7 @@ static void *game_thread_start(void *arg) {
 }
 
 static void *current_jni_env(void) {
-  return fake_env;
+  return g_jni_env;
 }
 
 /* NVThreadSpawnJNIThread(long*, const Android pthread_attr_t*, const char*,

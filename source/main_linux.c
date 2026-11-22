@@ -90,30 +90,30 @@ static void dispatch_jni_callbacks(void) {
         debugPrintf("cb: implOnPlaylistOpenComplete(%d, %d)\n", cb.arg0, cb.arg1);
         if (implOnPlaylistOpenComplete)
           ((void (*)(void *, void *, int, int))implOnPlaylistOpenComplete)(
-              fake_env, NULL, cb.arg0, cb.arg1);
+              g_jni_env, NULL, cb.arg0, cb.arg1);
         debugPrintf("cb: implOnPlaylistOpenComplete returned\n");
         break;
       case JNI_CB_ROCKSTAR_INITIAL_COMPLETE:
         debugPrintf("cb: implOnRockstarInitialComplete\n");
         if (implOnRockstarInitialComplete)
-          ((void (*)(void *, void *))implOnRockstarInitialComplete)(fake_env, NULL);
+          ((void (*)(void *, void *))implOnRockstarInitialComplete)(g_jni_env, NULL);
         debugPrintf("cb: implOnRockstarInitialComplete returned\n");
         break;
       case JNI_CB_ROCKSTAR_GATE_COMPLETE:
         debugPrintf("cb: implOnRockstarGateComplete(%d, %d)\n", cb.arg0, cb.arg1);
         if (implOnRockstarGateComplete)
           ((void (*)(void *, void *, int, int))implOnRockstarGateComplete)(
-              fake_env, NULL, cb.arg0, cb.arg1);
+              g_jni_env, NULL, cb.arg0, cb.arg1);
         break;
       case JNI_CB_ROCKSTAR_SIGNIN_COMPLETE:
         debugPrintf("cb: implOnRockstarSignInComplete\n");
         if (implOnRockstarSignInComplete)
-          ((void (*)(void *, void *))implOnRockstarSignInComplete)(fake_env, NULL);
+          ((void (*)(void *, void *))implOnRockstarSignInComplete)(g_jni_env, NULL);
         break;
       case JNI_CB_ROCKSTAR_SIGNOUT_COMPLETE:
         debugPrintf("cb: implOnRockstarSignOutComplete\n");
         if (implOnRockstarSignOutComplete)
-          ((void (*)(void *, void *))implOnRockstarSignOutComplete)(fake_env, NULL);
+          ((void (*)(void *, void *))implOnRockstarSignOutComplete)(g_jni_env, NULL);
         break;
       default:
         break;
@@ -125,6 +125,31 @@ static void check_data(void) {
   struct stat st;
   if (stat(SO_NAME, &st) < 0)
     fatal_error("Could not find %s", SO_NAME);
+}
+
+static void install_java_defaults(jni_host *host) {
+  jni_host_value value = {0};
+
+  value.z = 1;
+  jni_host_set_field_default(host, "*", "isTvDevice", "Z", &value);
+  value.z = 1;
+  jni_host_set_field_default(host, "*", "hasTouchScreen", "Z", &value);
+  value.z = 0;
+  jni_host_set_field_default(host, "*", "hasVibrator", "Z", &value);
+
+  value.i = 30;
+  jni_host_set_field_default(host, "*", "osVersion", "I", &value);
+  value.i = 1785;
+  jni_host_set_field_default(host, "*", "cpuFrequency", "I", &value);
+
+  value.l = jni_host_new_string(host, "Nintendo");
+  jni_host_set_field_default(host, "*", "manufacturer", "Ljava/lang/String;", &value);
+  value.l = jni_host_new_string(host, "Switch");
+  jni_host_set_field_default(host, "*", "model", "Ljava/lang/String;", &value);
+  value.l = jni_host_new_string(host, "nx");
+  jni_host_set_field_default(host, "*", "hardware", "Ljava/lang/String;", &value);
+  value.l = jni_host_new_string(host, "switch");
+  jni_host_set_field_default(host, "*", "product", "Ljava/lang/String;", &value);
 }
 
 static int make_window(SDL_Window **window, SDL_GLContext *context) {
@@ -236,32 +261,48 @@ int main(void) {
   so_free_temp(&game_mod);
   aml_load_mods("mods", &game_mod);
 
-  jni_init();
-  JNI_OnLoad(fake_vm, NULL);
+  jni_host_builder *builder = jni_host_builder_new();
+  jni_host_builder_set_dispatch(builder, jni_dispatch, NULL);
+  jni_host_builder_add_class(builder,
+      "com/rockstargames/oswrapper/GamePlatformServices", "java/lang/Object");
+  jni_host_builder_add_class(builder,
+      "com/rockstargames/oswrapper/GameNative", "java/lang/Object");
+  jni_host_builder_add_class(builder,
+      "com/rockstargames/oswrapper/DeviceInfo", "java/lang/Object");
+  jni_host *host = jni_host_build(builder);
+  if (!host) {
+    const char *error = jni_host_last_error();
+    fatal_error("Could not create the JNI host: %s", error ? error : "unknown");
+  }
+  g_jni_host = host;
+  g_jni_env = jni_host_env(host);
+  jni_dispatch_init();
+  install_java_defaults(host);
+  JNI_OnLoad(jni_host_vm(host), NULL);
 
-  void *gn = jni_make_object("com/rockstargames/oswrapper/GameNative");
-  void *activity = jni_make_object("GameActivity");
-  void *assets = jni_make_object("AssetManager");
-  void *surface = jni_make_object("Surface");
-  void *names = jni_make_string_array(0, NULL);
-  void *paths = jni_make_string_array(0, NULL);
+  void *gn = jni_host_new_instance(host, "com/rockstargames/oswrapper/GameNative");
+  void *activity = jni_host_new_instance(host, "GameActivity");
+  void *assets = jni_host_new_instance(host, "AssetManager");
+  void *surface = jni_host_new_instance(host, "Surface");
+  void *names = jni_host_new_string_array(host, 0, NULL);
+  void *paths = jni_host_new_string_array(host, 0, NULL);
 
   debugPrintf("lifecycle: implOnActivityCreated\n");
-  ((void (*)(void *, void *, void *))implOnActivityCreated)(fake_env, gn, activity);
+  ((void (*)(void *, void *, void *))implOnActivityCreated)(g_jni_env, gn, activity);
   debugPrintf("lifecycle: implOnActivityCreated returned\n");
   debugPrintf("lifecycle: implOnInitialSetup\n");
   ((void (*)(void *, void *, void *, void *, void *, void *))implOnInitialSetup)(
-      fake_env, gn, activity, assets, names, paths);
+      g_jni_env, gn, activity, assets, names, paths);
   debugPrintf("lifecycle: implOnInitialSetup returned\n");
   debugPrintf("lifecycle: implOnSurfaceCreated\n");
-  ((void (*)(void *, void *))implOnSurfaceCreated)(fake_env, gn);
+  ((void (*)(void *, void *))implOnSurfaceCreated)(g_jni_env, gn);
   debugPrintf("lifecycle: implOnSurfaceCreated returned\n");
   debugPrintf("lifecycle: implOnSurfaceChanged\n");
   ((void (*)(void *, void *, void *, int, int))implOnSurfaceChanged)(
-      fake_env, gn, surface, screen_width, screen_height);
+      g_jni_env, gn, surface, screen_width, screen_height);
   debugPrintf("lifecycle: implOnSurfaceChanged returned\n");
   debugPrintf("lifecycle: implOnResume\n");
-  ((void (*)(void *, void *))implOnResume)(fake_env, gn);
+  ((void (*)(void *, void *))implOnResume)(g_jni_env, gn);
   debugPrintf("lifecycle: implOnResume returned\n");
   linux_release_sdl_context();
 
@@ -293,7 +334,7 @@ int main(void) {
 
     if ((frames % 60) == 0)
       debugPrintf("main: implOnDrawFrame begin (%lu)\n", frames);
-    ((void (*)(void *, void *, float))implOnDrawFrame)(fake_env, NULL, dt);
+    ((void (*)(void *, void *, float))implOnDrawFrame)(g_jni_env, NULL, dt);
     if ((frames % 60) == 0)
       debugPrintf("main: implOnDrawFrame returned (%lu)\n", frames);
     frames++;

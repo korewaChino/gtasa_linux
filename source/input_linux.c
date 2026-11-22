@@ -32,7 +32,7 @@ static enum InputAbi input_abi;
 static void (*count_changed)(void *, void *, int);
 static void (*gamepad_connected)(void *, void *, int);
 static void (*gamepad_disconnected)(void *, void *, int);
-static void (*gamepad_resume)(void *, void *);
+static void (*gamepad_resume)(void *, void *, void *);
 static void (*button_down)(void *, void *, int, int);
 static void (*button_up)(void *, void *, int, int);
 static void (*axes_changed)(void *, void *, int, float, float, float, float, float, float);
@@ -55,10 +55,19 @@ static const int native_button_ids[BUTTONS] = {
   0, 1, 2, 3, 4, 15, 6, 7, 8, 9, 10, 11, 12, 13
 };
 
+static void resume_gamepads(void) {
+  int ids[MAX_PADS];
+  int n = 0;
+  for (int p = 0; p < count; p++)
+    ids[n++] = p;
+  void *array = jni_host_new_int_array(g_jni_host, n, ids);
+  gamepad_resume(g_jni_env, NULL, array);
+}
+
 static void send_button(int pad, int button, bool down) {
   if (pads[pad].held[button] == down) return;
   pads[pad].held[button] = down;
-  (down ? button_down : button_up)(fake_env, NULL, pad,
+  (down ? button_down : button_up)(g_jni_env, NULL, pad,
                                    native_button_ids[button]);
   if (trace) fprintf(stderr, "input: pad=%d button=%d native=%d %s\n",
                      pad, button, native_button_ids[button],
@@ -84,7 +93,7 @@ static void check_quit_chord(int pad) {
 static void send_axes(int pad, const float axes[6], bool force) {
   if (!force && memcmp(pads[pad].axes, axes, sizeof(pads[pad].axes)) == 0) return;
   memcpy(pads[pad].axes, axes, sizeof(pads[pad].axes));
-  axes_changed(fake_env, NULL, pad, axes[0], axes[1], axes[2], axes[3], axes[4], axes[5]);
+  axes_changed(g_jni_env, NULL, pad, axes[0], axes[1], axes[2], axes[3], axes[4], axes[5]);
   if (trace) fprintf(stderr, "input: pad=%d axes=%.3f,%.3f,%.3f,%.3f,%.3f,%.3f\n",
                      pad, axes[0], axes[1], axes[2], axes[3], axes[4], axes[5]);
 }
@@ -112,9 +121,9 @@ static void open_pad(SDL_JoystickID id) {
   if (mapping) { fprintf(stderr, "input: mapping=%s\n", mapping); SDL_free(mapping); }
   const int slot = count++;
   if (input_abi == INPUT_ABI_PER_PAD)
-    gamepad_connected(fake_env, NULL, slot);
+    gamepad_connected(g_jni_env, NULL, slot);
   else
-    count_changed(fake_env, NULL, count);
+    count_changed(g_jni_env, NULL, count);
   reset_pad(slot);
 }
 
@@ -147,7 +156,7 @@ int linux_input_init(so_module *module) {
   initialized = true;
   count = 0;
   if (input_abi == INPUT_ABI_COUNT)
-    count_changed(fake_env, NULL, 0);
+    count_changed(g_jni_env, NULL, 0);
   int num = 0;
   SDL_JoystickID *ids = SDL_GetJoysticks(&num);
   for (int i = 0; i < num; i++) {
@@ -175,16 +184,16 @@ void linux_input_event(const SDL_Event *event) {
         for (int i = p; i < count; i++) reset_pad(i);
         if (input_abi == INPUT_ABI_PER_PAD) {
           for (int i = p; i < count; i++)
-            gamepad_disconnected(fake_env, NULL, i);
+            gamepad_disconnected(g_jni_env, NULL, i);
         }
         SDL_CloseGamepad(pads[p].handle);
         memmove(&pads[p], &pads[p + 1], (count - p - 1) * sizeof(pads[0]));
         memset(&pads[--count], 0, sizeof(pads[0]));
         if (input_abi == INPUT_ABI_COUNT) {
-          count_changed(fake_env, NULL, count);
+          count_changed(g_jni_env, NULL, count);
         } else {
           for (int i = p; i < count; i++) {
-            gamepad_connected(fake_env, NULL, i);
+            gamepad_connected(g_jni_env, NULL, i);
             reset_pad(i);
           }
         }
@@ -217,7 +226,7 @@ void linux_input_event(const SDL_Event *event) {
     case SDL_EVENT_WINDOW_FOCUS_GAINED:
       focused = true;
       if (input_abi == INPUT_ABI_PER_PAD && gamepad_resume)
-        gamepad_resume(fake_env, NULL);
+        resume_gamepads();
       break;
     default:
       break;
@@ -230,7 +239,7 @@ void linux_input_update(void) {
    * The v2.11.264 count callback is idempotent; v2.11.311 uses explicit
    * connected/disconnected callbacks instead. */
   if (input_abi == INPUT_ABI_COUNT)
-    count_changed(fake_env, NULL, count);
+    count_changed(g_jni_env, NULL, count);
   if (!focused) {
 #ifdef GTASA_FREE_AIM
     g_dpad_down = 0;
@@ -269,12 +278,12 @@ void linux_input_shutdown(void) {
   for (int p = 0; p < count; p++) {
     reset_pad(p);
     if (input_abi == INPUT_ABI_PER_PAD)
-      gamepad_disconnected(fake_env, NULL, p);
+      gamepad_disconnected(g_jni_env, NULL, p);
     SDL_CloseGamepad(pads[p].handle);
   }
   memset(pads, 0, sizeof(pads));
   count = 0;
   if (input_abi == INPUT_ABI_COUNT)
-    count_changed(fake_env, NULL, 0);
+    count_changed(g_jni_env, NULL, 0);
   initialized = false;
 }

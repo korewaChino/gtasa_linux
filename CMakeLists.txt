@@ -11,9 +11,50 @@ set(GTASA_PRODUCT_NAME "Grand Theft Auto: San Andreas" CACHE STRING "Window and 
 set(GTASA_CONFIG_NAME "gtasa_nx.cfg" CACHE STRING "Wrapper configuration filename")
 set(GTASA_APPSTATE_NAME "appstate.txt" CACHE STRING "Wrapper app-state filename")
 set(GAME_BINARY_NAME "gtasa_linux" CACHE STRING "Game executable target and output name")
-
+set(JNI_HOST_REPOSITORY "https://github.com/KessokuNet/jni-host.git" CACHE STRING "jni-host repository")
+set(JNI_HOST_TAG "main" CACHE STRING "jni-host branch or commit")
+set(JNI_HOST_DIR "" CACHE PATH "local jni-host checkout; empty fetches from git")
 
 find_package(PkgConfig REQUIRED)
+find_program(CARGO_EXECUTABLE cargo HINTS "$ENV{HOME}/.cargo/bin" REQUIRED)
+
+if(NOT JNI_HOST_DIR)
+    if(POLICY CMP0169)
+        cmake_policy(SET CMP0169 OLD)
+    endif()
+    include(FetchContent)
+    FetchContent_Declare(jni_host
+        GIT_REPOSITORY "${JNI_HOST_REPOSITORY}"
+        GIT_TAG "${JNI_HOST_TAG}"
+        GIT_SHALLOW TRUE)
+    FetchContent_GetProperties(jni_host)
+    if(NOT jni_host_POPULATED)
+        FetchContent_Populate(jni_host)
+    endif()
+    set(JNI_HOST_DIR "${jni_host_SOURCE_DIR}")
+endif()
+
+if(NOT EXISTS "${JNI_HOST_DIR}/Cargo.toml")
+    message(FATAL_ERROR "jni-host not found at ${JNI_HOST_DIR}; set JNI_HOST_DIR")
+endif()
+set(JNI_HOST_LIBRARY "${JNI_HOST_DIR}/target/debug/libjni_host.a")
+file(GLOB_RECURSE JNI_HOST_SOURCES CONFIGURE_DEPENDS
+    "${JNI_HOST_DIR}/src/*.rs"
+    "${JNI_HOST_DIR}/src/*.c"
+    "${JNI_HOST_DIR}/bionic-shim/src/*.rs"
+    "${JNI_HOST_DIR}/bionic-shim/src/*.c"
+    "${JNI_HOST_DIR}/Cargo.toml"
+    "${JNI_HOST_DIR}/bionic-shim/Cargo.toml"
+)
+add_custom_command(
+    OUTPUT "${JNI_HOST_LIBRARY}"
+    COMMAND "${CARGO_EXECUTABLE}" build --manifest-path "${JNI_HOST_DIR}/Cargo.toml"
+    WORKING_DIRECTORY "${JNI_HOST_DIR}"
+    DEPENDS ${JNI_HOST_SOURCES}
+    COMMENT "Building jni-host"
+    VERBATIM
+)
+add_custom_target(jni_host_build DEPENDS "${JNI_HOST_LIBRARY}")
 pkg_check_modules(SDL3 REQUIRED IMPORTED_TARGET sdl3)
 pkg_check_modules(EGL REQUIRED IMPORTED_TARGET egl)
 pkg_check_modules(GLES2 REQUIRED IMPORTED_TARGET glesv2)
@@ -26,7 +67,7 @@ add_executable(${GAME_BINARY_NAME}
     source/error_linux.c
     source/imports.c
     source/input_linux.c
-    source/jni_fake.c
+    source/jni_dispatch.c
     source/libc_shim.c
     source/main_linux.c
     source/overlay.c
@@ -36,14 +77,17 @@ add_executable(${GAME_BINARY_NAME}
     source/audio_linux.c
 )
 
-target_include_directories(${GAME_BINARY_NAME} PRIVATE source source/hooks)
+add_dependencies(${GAME_BINARY_NAME} jni_host_build)
+
+target_include_directories(${GAME_BINARY_NAME} PRIVATE source source/hooks "${JNI_HOST_DIR}/include")
 target_link_libraries(${GAME_BINARY_NAME} PRIVATE
+    "${JNI_HOST_LIBRARY}"
     PkgConfig::SDL3
     PkgConfig::EGL
     PkgConfig::GLES2
     PkgConfig::OPENAL
     PkgConfig::MPG123
-    m dl pthread
+    m dl pthread rt util gcc_s
 )
 
 target_compile_definitions(${GAME_BINARY_NAME} PRIVATE
@@ -77,7 +121,7 @@ install(TARGETS ${GAME_BINARY_NAME} RUNTIME DESTINATION bin)
 include(CTest)
 if(BUILD_TESTING)
     add_executable(input_linux_test tests/input_linux_test.c source/input_linux.c)
-    target_include_directories(input_linux_test PRIVATE source)
+    target_include_directories(input_linux_test PRIVATE source "${JNI_HOST_DIR}/include")
     target_link_libraries(input_linux_test PRIVATE PkgConfig::SDL3 m)
     if(GTASA_QUIT_CHORD)
         target_compile_definitions(input_linux_test PRIVATE GTASA_QUIT_CHORD=1)

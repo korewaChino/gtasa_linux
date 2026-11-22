@@ -1,10 +1,19 @@
 #include "input_linux.h"
+#include "jni_fake.h"
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
 
-void *fake_env;
+void *g_jni_env;
+jni_host *g_jni_host;
+
+void *jni_host_new_int_array(jni_host *host, int count, const int *values) {
+  (void)host;
+  (void)count;
+  (void)values;
+  return NULL;
+}
 volatile int jni_quit_requested;
 static int native_count, down_calls, up_calls, resume_calls;
 static bool connected_slots[4];
@@ -33,8 +42,8 @@ static void disconnected(void *env, void *obj, int p) {
   connected_slots[p] = false;
   native_count--;
 }
-static void resume(void *env, void *obj) {
-  (void)env; (void)obj;
+static void resume(void *env, void *obj, void *ids) {
+  (void)env; (void)obj; (void)ids;
   resume_calls++;
 }
 static void down(void *env, void *obj, int p, int b) {

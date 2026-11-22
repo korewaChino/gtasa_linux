@@ -1,37 +1,38 @@
-/* jni_fake.h -- fake JNI environment for the GTA:SA oswrapper/GameNative layer
+/* jni_fake.h -- Java method dispatch for the GTA:SA oswrapper layer
  *
- * The game reaches a thin Java platform layer over JNI for a few things (the
- * app-local key/value store, splash screen, device locale/version).
- * We emulate just enough JavaVM/JNIEnv for those calls to resolve; all bulk data
- * is loaded natively, not through Java.
- *
- * This software may be modified and distributed under the terms
- * of the MIT license. See the LICENSE file for details.
+ * The JNI environment and object model come from jni-host. This file only
+ * declares the method dispatcher and the deferred native callbacks.
  */
 
 #ifndef __JNI_FAKE_H__
 #define __JNI_FAKE_H__
 
+#include <stddef.h>
 #include <stdint.h>
 
-// passed to JNI_OnLoad and to every JNI entry point as (JNIEnv*, jobject, ...)
-extern void *fake_vm;  // JavaVM *
-extern void *fake_env; // JNIEnv *
+#include "jni_host.h"
 
-// set when the game asks to quit
+extern jni_host *g_jni_host;
+extern void *g_jni_env;
+
+/* set when the game asks to quit */
 extern volatile int jni_quit_requested;
 
-// set once the engine reports the loading splash should hide
+/* set once the engine reports the loading splash should hide */
 extern volatile int jni_frontend_ready;
 
-void jni_init(void);
+void jni_dispatch_init(void);
 
-// ---------------------------------------------------------------------------
-// deferred native callbacks: GameNative entry points the Java platform layer
-// would fire back asynchronously. The engine blocks in early boot states until
-// these complete; we queue them from the JNI dispatch and the main loop invokes
-// the matching impl* entry point.
-// ---------------------------------------------------------------------------
+void jni_dispatch(void *userdata, const char *class_name, const char *method_name,
+                  const char *signature, void *this_object,
+                  const jni_host_value *args, size_t argc,
+                  jni_host_value *result);
+
+/* ------------------------------------------------------------------------ */
+/* deferred native callbacks: GameNative entry points the Java platform layer
+ * would fire back asynchronously. The engine blocks in early boot states until
+ * these complete; we queue them from the JNI dispatch and the main loop invokes
+ * the matching impl* entry point. */
 
 typedef enum {
   JNI_CB_PLAYLIST_OPEN_COMPLETE = 1, // implOnPlaylistOpenComplete(success, count)
@@ -46,13 +47,7 @@ typedef struct {
   int arg0, arg1;
 } JniCallback;
 
-// returns 0 when the queue is empty
+/* returns 0 when the queue is empty */
 int jni_pop_callback(JniCallback *out);
-
-// constructors for fake Java objects to pass into the game's JNI entry points
-void *jni_make_string(const char *utf);
-void *jni_make_string_array(int n, const char **strs);
-void *jni_make_int_array(int n, const int *vals);
-void *jni_make_object(const char *label);
 
 #endif
