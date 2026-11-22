@@ -10,6 +10,8 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         ccache \
+        curl \
+        ca-certificates \
         libmpg123-dev \
         libx11-dev \
         libwayland-dev \
@@ -20,6 +22,14 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         libpulse-dev \
         libasound2-dev \
         wayland-protocols
+
+ENV RUSTUP_HOME=/root/.rustup \
+    CARGO_HOME=/root/.cargo \
+    PATH=/root/.cargo/bin:$PATH
+
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o /tmp/rustup.sh && \
+    sh /tmp/rustup.sh -y --profile minimal --default-toolchain 1.100.0 && \
+    rm /tmp/rustup.sh
 
 FROM portmaster-base AS game-build
 ARG GAME=gtasa
@@ -48,7 +58,6 @@ RUN --mount=type=cache,target=/root/.cache/ccache,sharing=locked \
     APPSTATE_NAME="$APPSTATE_NAME" \
     GTASA_DEBUG_LOG="$GTASA_DEBUG_LOG" \
     GTASA_FREE_AIM="$GTASA_FREE_AIM" \
-
     /workspace/scripts/portmaster-build.sh build
 
 FROM scratch AS artifact

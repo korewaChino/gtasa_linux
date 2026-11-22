@@ -12,7 +12,7 @@ set(GTASA_CONFIG_NAME "gtasa_nx.cfg" CACHE STRING "Wrapper configuration filenam
 set(GTASA_APPSTATE_NAME "appstate.txt" CACHE STRING "Wrapper app-state filename")
 set(GAME_BINARY_NAME "gtasa_linux" CACHE STRING "Game executable target and output name")
 set(JNI_HOST_REPOSITORY "https://github.com/KessokuNet/jni-host.git" CACHE STRING "jni-host repository")
-set(JNI_HOST_TAG "main" CACHE STRING "jni-host branch or commit")
+set(JNI_HOST_TAG "2e10357b5cb54bba57b1c193342f0726ffbb0efd" CACHE STRING "jni-host branch or commit")
 set(JNI_HOST_DIR "" CACHE PATH "local jni-host checkout; empty fetches from git")
 
 find_package(PkgConfig REQUIRED)
@@ -25,8 +25,7 @@ if(NOT JNI_HOST_DIR)
     include(FetchContent)
     FetchContent_Declare(jni_host
         GIT_REPOSITORY "${JNI_HOST_REPOSITORY}"
-        GIT_TAG "${JNI_HOST_TAG}"
-        GIT_SHALLOW TRUE)
+        GIT_TAG "${JNI_HOST_TAG}")
     FetchContent_GetProperties(jni_host)
     if(NOT jni_host_POPULATED)
         FetchContent_Populate(jni_host)
